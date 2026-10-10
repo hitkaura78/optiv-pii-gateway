@@ -22,6 +22,7 @@ ingest.load -> extract.extract -> detect.detect -> redact.redact
 | `report.py` | JSON report without PII values |
 | `evaluate.py` | Precision/recall against labelled synthetic data |
 | `benchmark.py` | Seeded synthetic labelled corpus + full-pipeline run and metrics table |
+| `demo.py` | One-command presentation demo on six synthetic documents |
 | `gate.py` | Release gate; **fails closed** on incomplete extraction, unreadable units, review findings, or residual PII |
 | `package.py` | DOCX/PPTX package scan and sanitising: every XML part is parsed, checked and re-serialised |
 | `pdf_extract.py` | PDF native text (PyMuPDF) plus Tesseract OCR for image/vector pages |
@@ -185,8 +186,22 @@ py -3.12 -m venv .venv          # 3.11+ works; 3.12 is what was verified
 .venv\Scripts\python -m pytest -q -rsx
 ```
 
-Verified on Windows: 131 passed, 1 xfailed with Tesseract available; 129 passed, 2 skipped, 1 xfailed
+Verified on Windows: 134 passed, 1 xfailed with Tesseract available; 132 passed, 2 skipped, 1 xfailed
 without it (skips = real-OCR tests, xfail = the known PDF mid-token line-break gap).
+
+## Demo
+
+```powershell
+$env:TESSERACT_CMD = "C:\Program Files\Tesseract-OCR\tesseract.exe"   # skip if tesseract is on PATH
+.venv\Scripts\python -m pii_pipeline.demo                              # writes into gitignored tmp/demo
+```
+
+Runs six synthetic documents through the real CLI path and prints the gate result, reasons and
+findings as type + location only; no original value is ever printed (checked by a test). Expected:
+DOCX, PPTX, native PDF and scanned PDF (via OCR) are RELEASED with 0 known values left in the
+output; a DOCX with an order number and a DOCX with a picture are BLOCKED with no file kept. Takes
+under 10 seconds; without Tesseract the scanned-PDF case is skipped and the rest still run. Exit
+code 0 only if every case behaved as expected.
 
 ## Data handling rules
 

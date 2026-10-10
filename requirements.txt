@@ -1,0 +1,8 @@
+# Runtime (pinned to versions verified on Python 3.12, Windows)
+pymupdf==1.28.2        # PDF text, page rendering for OCR, true redaction (AGPL-3.0)
+python-docx==1.2.0
+python-pptx==1.0.2
+pytesseract==0.3.13    # needs Tesseract OCR binary installed separately
+pillow==12.3.0
+# Dev
+pytest==9.1.1

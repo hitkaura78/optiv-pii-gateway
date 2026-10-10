@@ -1,0 +1,30 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Secrets
+.env
+.env.*
+*.key
+*.pem
+secrets/
+
+# Sensitive inputs and outputs: never commit real documents, redacted outputs or audit maps
+data/
+output/
+audit/
+*.audit.json
+*.mapping.json
+
+# Temp / OS / editor
+tmp/
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

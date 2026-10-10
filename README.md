@@ -22,6 +22,42 @@ ingest.load -> extract.extract -> detect.detect -> redact.redact
 | `report.py` | JSON report without PII values |
 | `evaluate.py` | Precision/recall against labelled synthetic data |
 | `gate.py` | Release gate; **fails closed** on incomplete extraction, unreadable units, review findings, or residual PII |
+| `package.py` | DOCX package scan and sanitising: every XML part is parsed, checked and re-serialised |
+| `cli.py` | `python -m pii_pipeline.cli INPUT --out DIR [--audit]`; exit 0 = released, 1 = blocked, 2 = error |
+
+## Status and limitations
+
+Prototype for a case study. **Only DOCX is implemented. PDF (including scanned-PDF OCR) and PPTX
+are not implemented yet.** Nothing here is production-ready, and detection is not complete.
+
+**Threat model.** Aimed at accidental PII in ordinary Office documents. Deliberately obfuscated PII
+(e.g. `jane (at) example dot com`, zero-width or look-alike characters) and hand-crafted,
+schema-invalid packages are out of scope.
+
+**Detected (pattern-based only, no NER):** email, phone (NANP and `+` international), payment card
+(Luhn-checked; card-shaped without Luhn goes to review), US SSN, IPv4/IPv6. Unclaimed runs of 7+
+digits go to human review. **Not detected:** person names, postal addresses, dates of birth,
+Aadhaar, PAN, IBAN.
+
+**Fails closed (release blocked, no redacted file kept)** when the DOCX contains: images, drawings
+or text boxes; embedded/binary parts; a non-standard part with more than one text/attribute field;
+text nodes with nested elements; a DOCTYPE; any review finding; or residual PII after redaction.
+Legacy `.doc` and encrypted files are rejected. Most real documents contain images, so most will be
+blocked until OCR/image handling exists.
+
+**Metadata changes on release:** core properties reduced to created/modified dates; app properties
+reduced to numeric statistics and flags; custom properties, `word/people.xml` and the thumbnail
+removed; document variables removed; tracked-change/comment authors replaced with `Author`.
+
+**Known gaps (crafted, schema-invalid XML; not fixed):**
+1. A value split across two attributes of an element in a standard Word part
+   (e.g. `<w:p w:foo="jane.te" w:bar="ster@example.com">`) can pass with a fragment left behind.
+2. A custom part that declares the Office bibliography root namespace is treated as a known part,
+   so the same attribute split can pass there.
+
+**Untested:** opening outputs in Microsoft Word or LibreOffice (only python-docx reopening and ZIP
+integrity are verified); real Word-authored documents (tests use generated synthetic fixtures);
+detection precision/recall (`evaluate.py` is not implemented, no labelled dataset yet).
 
 ## Setup (Windows)
 

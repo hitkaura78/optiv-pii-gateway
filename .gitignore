@@ -19,6 +19,8 @@ output/
 audit/
 *.audit.json
 *.mapping.json
+*.UNSAFE-DRAFT*
+*.redacted.docx
 
 # Temp / OS / editor
 tmp/

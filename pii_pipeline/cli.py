@@ -23,8 +23,9 @@ def run(input_path: Path, out_dir: Path, write_audit: bool = False):
     out_dir = Path(out_dir)
     src = ingest.load(input_path)
     stem = src.doc_id[:12]
-    final = out_dir / f"{stem}.redacted.docx"
-    for stale in (final, out_dir / f"{stem}.UNSAFE-DRAFT.docx", out_dir / f"{stem}.audit.json"):
+    ext = src.kind.value                # "docx" / "pdf": same naming rules for every format
+    final = out_dir / f"{stem}.redacted.{ext}"
+    for stale in (final, out_dir / f"{stem}.UNSAFE-DRAFT.{ext}", out_dir / f"{stem}.audit.json"):
         _unlink(stale)                  # nothing from an earlier attempt for this document survives
     result = None
     released = False

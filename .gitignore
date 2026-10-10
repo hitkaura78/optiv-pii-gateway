@@ -21,6 +21,7 @@ audit/
 *.mapping.json
 *.UNSAFE-DRAFT*
 *.redacted.docx
+*.redacted.pdf
 
 # Temp / OS / editor
 tmp/

@@ -57,6 +57,9 @@ def scan_package(data: bytes) -> package.Scan:
 def extract(src: SourceDocument) -> ExtractedDocument:
     """Return every text unit. Mark units PARTIAL/UNREADABLE and set complete=False
     rather than silently dropping content (images without OCR, failed pages, etc.)."""
+    if src.kind is SourceKind.PDF:
+        from .pdf_extract import extract_pdf
+        return extract_pdf(src)
     if src.kind is not SourceKind.DOCX:
         raise ValueError(f"{src.kind.value} extraction is not implemented")
     data = src.path.read_bytes()      # single read: hash check and parsing use the same bytes

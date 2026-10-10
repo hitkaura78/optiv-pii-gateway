@@ -36,8 +36,11 @@ def redact(doc: ExtractedDocument, findings: list[Finding], out_dir: Path, write
 
     Findings located in parts that are deliberately removed (custom properties, people list)
     count as applied: the whole part is deleted."""
+    if doc.source.kind is SourceKind.PDF:
+        from .pdf_redact import redact_pdf
+        return redact_pdf(doc, findings, out_dir, write_audit)
     if doc.source.kind is not SourceKind.DOCX:
-        raise ValueError("only DOCX redaction is implemented")
+        raise ValueError("only DOCX and PDF redaction are implemented")
     data = doc.source.path.read_bytes()      # process exactly the bytes we hash
     if hashlib.sha256(data).hexdigest() != doc.source.doc_id:
         raise ValueError("source file changed since extraction")

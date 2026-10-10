@@ -251,3 +251,32 @@ def test_bad_inputs_exit_2(tmp_path):
     for name in ("x.pptx", "wrong.docx", "missing.pptx"):
         assert cli.main([str(tmp_path / name), "--out", str(tmp_path / "o")]) == 2
     assert pptx_files(tmp_path / "o") == []
+
+
+def test_powerpoint_365_revision_info_is_removed_and_deck_releases(tmp_path):
+    src = make_pptx(tmp_path / "rev.pptx", pii=False)
+    ns = "http://schemas.microsoft.com/office/powerpoint/2015/10/main"
+
+    def edit(parts):
+        parts["ppt/revisionInfo.xml"] = (
+            f'<?xml version="1.0" encoding="UTF-8"?><p1510:revInfo xmlns:p1510="{ns}"><p1510:revLst>'
+            f'<p1510:client id="{{3F2504E0-4F89-11D3-9A0C-0305E82C3301}}" v="42" dt="2026-01-01T00:00:00.000"/>'
+            f'</p1510:revLst></p1510:revInfo>').encode()
+        parts["ppt/changesInfos/changesInfo1.xml"] = (
+            f'<?xml version="1.0" encoding="UTF-8"?><pc:chgInfo xmlns:pc="{ns}"><pc:chgData '
+            f'id="{{9B1DEB4D-3B7D-4BAD-9BDD-2B0D7B3DCB6D}}" name="Some Client"/></pc:chgInfo>').encode()
+        sub(parts, "ppt/_rels/presentation.xml.rels", "</Relationships>",
+            '<Relationship Id="rIdRI" Type="http://schemas.microsoft.com/office/2015/10/relationships/revisionInfo" '
+            'Target="revisionInfo.xml"/><Relationship Id="rIdCI" Type="http://schemas.microsoft.com/office/2016/11/'
+            'relationships/changesInfo" Target="changesInfos/changesInfo1.xml"/></Relationships>')
+        sub(parts, "[Content_Types].xml", "</Types>",
+            '<Override PartName="/ppt/revisionInfo.xml" ContentType="application/vnd.ms-powerpoint.revisioninfo+xml"/>'
+            '<Override PartName="/ppt/changesInfos/changesInfo1.xml" ContentType="application/vnd.ms-powerpoint.'
+            'changesinfo+xml"/></Types>')
+    mutate_zip(src, edit)
+    assert cli.main([str(src), "--out", str(tmp_path / "o")]) == 0
+    out = pptx_files(tmp_path / "o")[0]
+    names, blob = package_blob(out)
+    assert "ppt/revisionInfo.xml" not in names and not any(n.startswith("ppt/changesInfos/") for n in names)
+    assert "revisionInfo" not in blob and "changesInfo" not in blob and "Some Client" not in blob
+    Presentation(str(out))

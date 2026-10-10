@@ -93,14 +93,16 @@ def is_xml_part(name: str) -> bool:
     return name.endswith(".xml") or name.endswith(".rels")
 
 
-_REMOVED = ("docProps/custom.xml", "word/people.xml", "ppt/commentAuthors.xml", "ppt/authors.xml")
+_REMOVED = ("docProps/custom.xml", "word/people.xml", "ppt/commentAuthors.xml", "ppt/authors.xml",
+            "ppt/revisionInfo.xml")
 
 
 def should_remove(name: str) -> bool:
     """Parts dropped on redaction: custom props, reviewer lists, review comments (classic and
     modern PowerPoint comments, removed rather than redacted), printer settings (printer/user names),
-    page-preview thumbnail."""
-    return name in _REMOVED or name.startswith(("docProps/thumbnail", "ppt/comments/", "ppt/printerSettings/", "word/printerSettings/"))
+    PowerPoint 365 revision/change history (client GUIDs, no slide content), page-preview thumbnail."""
+    return name in _REMOVED or name.startswith(("docProps/thumbnail", "ppt/comments/", "ppt/changesInfos/", "ppt/printerSettings/",
+                                         "word/printerSettings/"))
 
 
 def parse_xml(blob: bytes):

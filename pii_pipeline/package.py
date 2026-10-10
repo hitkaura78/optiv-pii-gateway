@@ -36,15 +36,19 @@ _XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 _P_TAGS = {f"{{{W}}}p", f"{{{A}}}p"}
 _WTEXT = {f"{{{W}}}t", f"{{{W}}}instrText", f"{{{W}}}delText"}
 _TEXT_TAGS = _WTEXT | {f"{{{A}}}t", f"{{{M}}}t"}
-_LITERAL = {f"{{{W}}}tab": "\t", f"{{{W}}}br": "\n", f"{{{W}}}cr": "\n", f"{{{W}}}noBreakHyphen": "-"}
+_LITERAL = {f"{{{W}}}tab": "\t", f"{{{W}}}br": "\n", f"{{{W}}}cr": "\n", f"{{{W}}}noBreakHyphen": "-",
+            f"{{{A}}}br": "\n"}
 _HEX = re.compile(r"[0-9A-Fa-f]{1,8}")   # rsids, paraIds, colours: cannot hold a detectable value
 _REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 _CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 _CORE_KEEP = {"created", "modified"}
 # Font signature/panose and revision-id attributes are fixed-format codes, not content.
-_CODE_ELEMS = {"panose1", "sig"}
+_CODE_ELEMS = {"panose1", "sig", "creationId", "modId"}
 _CODE_ATTRS = {"panose1", "csb0", "csb1", "usb0", "usb1", "usb2", "usb3", "paraId", "textId"}
 _DRAWING = re.compile(rb"<w:(?:drawing|pict|object)[ >/]")
+# PowerPoint content we cannot read: pictures/blips, OLE, media, controls
+_PPT_UNREAD = re.compile(rb"<(?:p:pic|a:blip|p:oleObj|p:video|a:videoFile|a:audioFile|a:wavAudioFile|p:control)[ >/]")
+_PPT_UNREAD_DIRS = ("ppt/charts/", "ppt/diagrams/", "ppt/activeX/", "ppt/embeddings/", "ppt/drawings/")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|[+-]\d{2}:\d{2})?")
 _INT, _BOOL = re.compile(r"\d{1,12}"), re.compile(r"true|false")
 _APP_KEEP = {**dict.fromkeys(["Pages", "Words", "Characters", "Lines", "Paragraphs", "CharactersWithSpaces",
@@ -60,7 +64,11 @@ _KNOWN_PARTS = re.compile(
     r"\[Content_Types\]\.xml|.*\.rels|docProps/(?:core|app)\.xml"
     r"|word/(?:document|styles|stylesWithEffects|settings|webSettings|fontTable|numbering|footnotes|endnotes"
     r"|comments|commentsExtended|commentsIds|people|header\d*|footer\d*)\.xml"
-    r"|word/theme/[^/]+\.xml|word/glossary/.*\.xml|customXml/itemProps\d*\.xml")
+    r"|word/theme/[^/]+\.xml|word/glossary/.*\.xml|customXml/itemProps\d*\.xml"
+    r"|ppt/(?:presentation|presProps|viewProps|tableStyles)\.xml"
+    r"|ppt/slides/slide\d+\.xml|ppt/slideLayouts/slideLayout\d+\.xml|ppt/slideMasters/slideMaster\d+\.xml"
+    r"|ppt/notesSlides/notesSlide\d+\.xml|ppt/notesMasters/notesMaster\d+\.xml"
+    r"|ppt/handoutMasters/handoutMaster\d+\.xml|ppt/theme/theme\d+\.xml")
 _EXEMPT_PARTS = {"docProps/core.xml", "docProps/app.xml"}
 _PARSER = dict(resolve_entities=False, no_network=True, load_dtd=False, huge_tree=False)
 
@@ -85,9 +93,14 @@ def is_xml_part(name: str) -> bool:
     return name.endswith(".xml") or name.endswith(".rels")
 
 
+_REMOVED = ("docProps/custom.xml", "word/people.xml", "ppt/commentAuthors.xml", "ppt/authors.xml")
+
+
 def should_remove(name: str) -> bool:
-    """Parts dropped on redaction: custom props, reviewer list, page-preview thumbnail."""
-    return name in ("docProps/custom.xml", "word/people.xml") or name.startswith("docProps/thumbnail")
+    """Parts dropped on redaction: custom props, reviewer lists, review comments (classic and
+    modern PowerPoint comments, removed rather than redacted), printer settings (printer/user names),
+    page-preview thumbnail."""
+    return name in _REMOVED or name.startswith(("docProps/thumbnail", "ppt/comments/", "ppt/printerSettings/", "word/printerSettings/"))
 
 
 def parse_xml(blob: bytes):
@@ -174,7 +187,8 @@ def _scan_part(name: str, root, names: dict, units: list, warnings: set) -> None
             for k, v in el.attrib.items():
                 local = k.rsplit("}", 1)[-1]
                 if (k != _XML_SPACE and len(v) >= 6 and not _HEX.fullmatch(v)
-                        and local not in _CODE_ATTRS and not local.startswith("rsid")):
+                        and local not in _CODE_ATTRS and not local.startswith("rsid")
+                        and not (local == "id" and v.isdigit())):
                     units.append(Unit(f"pkg:{name}#{n}", name, [(v, _set_attr(el, k))]))
                     n += 1
         pieces = []
@@ -212,6 +226,17 @@ def scan(data: bytes, names: dict | None = None) -> Scan:
             root = roots[name] = parse_xml(blob)
             if name.startswith("word/") and _DRAWING.search(blob):
                 warnings.add("images/drawings present (not scanned)")
+            if name.startswith("ppt/"):
+                if _PPT_UNREAD.search(blob):
+                    warnings.add("images/media/embedded objects present (not scanned)")
+                if name.startswith(_PPT_UNREAD_DIRS):
+                    warnings.add("charts, SmartArt, ActiveX or embedded objects present (not scanned)")
+                if name.endswith(".rels"):
+                    for rel in root.iter(f"{{{_REL_NS}}}Relationship"):
+                        if rel.get("TargetMode") == "External" and not rel.get("Type", "").endswith("/hyperlink"):
+                            warnings.add("external (linked) objects present (not scanned)")
+            if name == "[Content_Types].xml" and b"macroEnabled" in blob:
+                warnings.add("macro-enabled content present (not scanned)")
             _scan_part(name, root, names, units, warnings)
     return Scan(units, sorted(warnings), roots, order)
 

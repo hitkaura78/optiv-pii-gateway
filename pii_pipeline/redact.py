@@ -1,6 +1,6 @@
 """Redaction of the original file format. Owner: builder.
 
-DOCX only. Findings with Action.REDACT/MASK are replaced by a typed placeholder such as
+DOCX and PPTX (OPC packages; PDF has its own module). Findings with Action.REDACT/MASK are replaced by a typed placeholder such as
 [EMAIL]; REVIEW/KEEP findings are left untouched (the gate blocks REVIEW).
 """
 import hashlib
@@ -29,7 +29,7 @@ def redact(doc: ExtractedDocument, findings: list[Finding], out_dir: Path, write
     """Write a redacted copy (same format) to out_dir. PDF redaction must remove the
     underlying text, not just draw a box. Write the audit mapping only under out_dir.
 
-    The output is an UNVERIFIED draft named <doc_id12>.UNSAFE-DRAFT.docx; the caller must
+    The output is an UNVERIFIED draft named <doc_id12>.UNSAFE-DRAFT.<docx|pptx>; the caller must
     re-scan it, pass the gate, and only then rename it. The audit mapping (finding_id ->
     original value) is sensitive and is written only when write_audit=True, to
     <out_dir>/<doc_id12>.audit.json (gitignored). Default: not written.
@@ -39,15 +39,15 @@ def redact(doc: ExtractedDocument, findings: list[Finding], out_dir: Path, write
     if doc.source.kind is SourceKind.PDF:
         from .pdf_redact import redact_pdf
         return redact_pdf(doc, findings, out_dir, write_audit)
-    if doc.source.kind is not SourceKind.DOCX:
-        raise ValueError("only DOCX and PDF redaction are implemented")
+    if doc.source.kind not in (SourceKind.DOCX, SourceKind.PPTX):
+        raise ValueError("unsupported file type for redaction")
     data = doc.source.path.read_bytes()      # process exactly the bytes we hash
     if hashlib.sha256(data).hexdigest() != doc.source.doc_id:
         raise ValueError("source file changed since extraction")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    sc = scan_package(data)
+    sc = scan_package(data, doc.source.kind)
     units = {u.unit_id: u for u in sc.units}
     expected = {u.unit_id: u.text for u in doc.units}
     if set(expected) != set(units) or any(units[k].text != v for k, v in expected.items()):
@@ -95,7 +95,7 @@ def redact(doc: ExtractedDocument, findings: list[Finding], out_dir: Path, write
         package.verify_scrubbed(zf.namelist(), zf.read)
 
     stem = doc.source.doc_id[:12]       # never reuse the original filename (may contain PII)
-    output_path = out_dir / f"{stem}.UNSAFE-DRAFT.docx"
+    output_path = out_dir / f"{stem}.UNSAFE-DRAFT.{doc.source.kind.value}"
     output_path.write_bytes(out.getvalue())
 
     audit_path = None

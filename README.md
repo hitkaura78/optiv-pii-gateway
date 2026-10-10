@@ -22,16 +22,15 @@ ingest.load -> extract.extract -> detect.detect -> redact.redact
 | `report.py` | JSON report without PII values |
 | `evaluate.py` | Precision/recall against labelled synthetic data |
 | `gate.py` | Release gate; **fails closed** on incomplete extraction, unreadable units, review findings, or residual PII |
-| `package.py` | DOCX package scan and sanitising: every XML part is parsed, checked and re-serialised |
+| `package.py` | DOCX/PPTX package scan and sanitising: every XML part is parsed, checked and re-serialised |
 | `pdf_extract.py` | PDF native text (PyMuPDF) plus Tesseract OCR for image/vector pages |
 | `pdf_redact.py` | PDF true redaction, structure allowlisting, saved-file verification |
 | `cli.py` | `python -m pii_pipeline.cli INPUT --out DIR [--audit]`; exit 0 = released, 1 = blocked, 2 = error |
 
 ## Status and limitations
 
-Prototype for a case study. **DOCX and PDF (native text and scanned pages via OCR) are
-implemented; PPTX is not implemented yet.** Nothing here is production-ready, and detection is not
-complete.
+Prototype for a case study. **DOCX, PDF (native text and scanned pages via OCR) and PPTX are
+implemented** as vertical slices. Nothing here is production-ready, and detection is not complete.
 
 **Threat model.** Aimed at accidental PII in ordinary Office and PDF documents. Deliberately
 obfuscated PII (e.g. `jane (at) example dot com`, zero-width or look-alike characters) and
@@ -103,6 +102,29 @@ it leaves a white gap, not a black bar. Links that use named destinations break.
 right-to-left scripts and ligature oddities; image soft masks and inline images under redaction
 boxes; per-image XMP metadata.
 
+### PPTX
+
+**How it works.** Uses the same package scanner as DOCX. Text in slides (shapes, tables, grouped
+shapes), speaker notes, layouts, masters, hyperlink targets/tooltips and alt text is scanned and
+redacted, including hidden slides; text split across runs is joined. Review comments and the
+comment-author lists (classic and modern) are **removed, not redacted**. Document properties are
+reduced as for DOCX; thumbnail, printer settings and custom properties are removed.
+
+**Fails closed** when the deck contains pictures or other media, charts, SmartArt, OLE/embedded
+objects, ActiveX, VBA/macros, linked (external, non-hyperlink) objects, other binary parts (e.g.
+embedded fonts), a non-standard part with more than one text/attribute field, or a DOCTYPE. Most
+real decks contain pictures or charts and will be blocked. Decks saved by PowerPoint 365 usually
+include `ppt/revisionInfo.xml`, which is currently treated as a non-standard part and blocks release
+(over-blocking, not a leak).
+
+**Known gaps (crafted input; not fixed):**
+1. The same attribute-split gap as DOCX applies to standard PPTX parts.
+2. Digit-only `id` attributes are not scanned (in DOCX too), so a crafted numeric value there,
+   e.g. `id="4155550132"`, survives.
+
+**Untested:** opening outputs in PowerPoint or LibreOffice (only python-pptx reopening and ZIP
+integrity are verified); real PowerPoint-authored decks (tests use python-pptx-generated decks).
+
 ## Setup (Windows)
 
 ```powershell
@@ -124,8 +146,8 @@ py -3.12 -m venv .venv          # 3.11+ works; 3.12 is what was verified
 .venv\Scripts\python -m pytest -q -rsx
 ```
 
-Verified on Windows: 100 passed, 1 xfailed with Tesseract available; 99 passed, 1 skipped, 1 xfailed
-without it (skip = real-OCR test, xfail = the known mid-token line-break gap).
+Verified on Windows: 116 passed, 1 xfailed with Tesseract available; 115 passed, 1 skipped, 1 xfailed
+without it (skip = real-OCR test, xfail = the known PDF mid-token line-break gap).
 
 ## Data handling rules
 

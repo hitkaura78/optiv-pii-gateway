@@ -57,6 +57,13 @@ def test_variants_handles_single_token_empty_hyphenated_and_middle_initials():
     assert variants("   ") == []
     assert variants("Madonna") == ["Madonna"]
 
+    # Registering and scanning a single-word name must not crash
+    reg = NameRegistry()
+    p = reg.register("Madonna")
+    assert p is not None and p.surname == ""
+    hits = reg.scan_text("Madonna attended the briefing.")
+    assert len(hits) == 1 and "Madonna attended the briefing."[hits[0].start:hits[0].end] == "Madonna"
+
     v_hyph = variants("Sarah   Al-Mansoor")
     assert "Sarah Al-Mansoor" in v_hyph
     assert "S. Al-Mansoor" in v_hyph
@@ -77,12 +84,16 @@ def test_registry_links_variants_within_one_doc_and_never_across_docs():
             TextUnit("table:0/r0/c1/para:0", "FULL NAME"),
             TextUnit("table:0/r1/c0/para:0", "EMP-30912"),
             TextUnit("table:0/r1/c1/para:0", "Elena K. Rostova"),
-            TextUnit("para:0", "Follow-up assigned to E. Rostova and E.Rostova; approved by Director Rostova."),
+            TextUnit(
+                "para:0",
+                "Follow-up assigned to Elena Rostova, E. Rostova, and E.Rostova; approved by Rostova.",
+            ),
         ],
         True,
     )
     f1 = [f for f in detect_and_resolve(doc1) if f.pii_type is PIIType.PERSON and f.action is Action.MASK]
     para_hits = [doc1.units[4].text[f.start:f.end] for f in f1 if f.unit_id == "para:0"]
+    assert "Elena Rostova" in para_hits
     assert "E. Rostova" in para_hits
     assert "E.Rostova" in para_hits
     assert "Rostova" in para_hits
@@ -92,28 +103,48 @@ def test_registry_links_variants_within_one_doc_and_never_across_docs():
     assert person_keys == {"EMP-30912"}
     assert person_tags == {"[PERSON_001]"}
 
-    # Document 2 has no full-name seed for Rostova -> bare 'Rostova' is NOT linked across documents
+    # Document 2 has a different person with a similar surname ("Viktor Rostova", EMP-99100)
+    # -> must NOT inherit EMP-30912 from Document 1
     doc2 = ExtractedDocument(
         SourceDocument(Path("d2.docx"), SourceKind.DOCX, "2" * 64),
-        [TextUnit("para:0", "Director Rostova reviewed the policy.")],
+        [
+            TextUnit("table:0/r0/c0/para:0", "EMP ID"),
+            TextUnit("table:0/r0/c1/para:0", "FULL NAME"),
+            TextUnit("table:0/r1/c0/para:0", "EMP-99100"),
+            TextUnit("table:0/r1/c1/para:0", "Viktor Rostova"),
+            TextUnit("para:0", "Reviewed by V. Rostova and Rostova; E. Rostova is not in this doc."),
+        ],
         True,
     )
     f2 = [f for f in detect_and_resolve(doc2) if f.pii_type is PIIType.PERSON and f.action is Action.MASK]
-    assert f2 == []
+    doc2_keys = {f.entity_key for f in f2}
+    assert doc2_keys == {"EMP-99100"}
+    assert "EMP-30912" not in doc2_keys
+
+    # Document 3 has no full-name seed for Rostova -> bare 'Rostova' is NOT linked across documents
+    doc3 = ExtractedDocument(
+        SourceDocument(Path("d3.docx"), SourceKind.DOCX, "3" * 64),
+        [TextUnit("para:0", "Director Rostova reviewed the policy.")],
+        True,
+    )
+    f3 = [f for f in detect_and_resolve(doc3) if f.pii_type is PIIType.PERSON and f.action is Action.MASK]
+    assert f3 == []
 
 
-def test_registry_does_not_merge_two_people_sharing_a_surname():
+def test_registry_does_not_merge_two_people_sharing_a_surname_or_short_surname():
     reg = NameRegistry()
     reg.register("Alice Kowalski", entity_key="EMP-10001", has_id_seed=True)
     reg.register("Bob Kowalski", entity_key="EMP-10002", has_id_seed=True)
+    reg.register("Noah Chen", entity_key="EMP-10003", has_id_seed=True)  # 4-letter surname (< 5)
 
-    text = "Reviewed by A. Kowalski, B. Kowalski, and Manager Kowalski."
+    text = "Reviewed by A. Kowalski, B. Kowalski, Manager Kowalski, and Director Chen."
     cands = reg.scan_text(text)
     by_span = {text[c.start:c.end]: c.entity_key for c in cands}
     assert by_span.get("A. Kowalski") == "EMP-10001"
     assert by_span.get("B. Kowalski") == "EMP-10002"
-    # Bare shared surname 'Kowalski' must NOT be linked to either person
+    # Bare shared surname 'Kowalski' and <5-letter surname 'Chen' must NOT be matched alone
     assert "Kowalski" not in by_span
+    assert "Chen" not in by_span
 
 
 def test_strict_mode_never_suppresses_high_severity_and_ignores_tags():

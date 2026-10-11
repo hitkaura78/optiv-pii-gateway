@@ -234,7 +234,7 @@ class NameRegistry:
                         )
                     )
 
-            # 2. Unique surname alone (only if unique in document, >= min_surname_len, and corroborated)
+            # 2. Unique surname alone (only if unique in document and >= min_surname_len, default 5)
             surname = person.surname
             if (
                 surname
@@ -246,7 +246,6 @@ class NameRegistry:
                 spat = re.compile(rf"(?<![A-Za-z0-9_-])({re.escape(surname)})(?![A-Za-z0-9_-])")
                 for m in spat.finditer(text):
                     s, e = m.span(1)
-                    # Check corroboration window (40 chars before, 25 chars after)
                     ctx_before = text[max(0, s - 40):s]
                     ctx_after = text[e:min(len(text), e + 25)]
                     has_corroboration = bool(
@@ -255,15 +254,13 @@ class NameRegistry:
                     )
                     if is_common and not has_corroboration:
                         continue
-                    if not (has_corroboration or person.has_id_seed):
-                        continue
                     out.append(
                         Candidate(
                             start=s,
                             end=e,
                             pii_type=PIIType.PERSON,
                             entity_type="PERSON",
-                            score=0.76 if has_corroboration else 0.72,
+                            score=0.76 if (has_corroboration or person.has_id_seed) else 0.72,
                             validator="registry:unique_surname",
                             detector="registry:unique_surname",
                             category="PERSON",

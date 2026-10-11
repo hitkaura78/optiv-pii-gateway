@@ -106,33 +106,45 @@ def test_home_address_vs_hq_address_allowlist():
 
 
 def test_table_column_typing_and_raci_header_scanning():
-    # 3-column table + RACI header cell containing a person name
-    units = [
-        TextUnit("table:0/r0/c0/para:0", "EMP ID"),
-        TextUnit("table:0/r0/c1/para:0", "Responsible: Priya Nair"),
-        TextUnit("table:0/r0/c2/para:0", "MOBILE"),
-        TextUnit("table:0/r1/c0/para:0", "EMP-20415"),
-        TextUnit("table:0/r1/c1/para:0", "Noah Novak"),
-        TextUnit("table:0/r1/c2/para:0", "+1 (555) 0114"),
-    ]
-    doc = ExtractedDocument(
-        SourceDocument(Path("dir.docx"), SourceKind.DOCX, "c" * 64),
-        units,
-        True,
-    )
-    findings = [f for f in detect_and_resolve(doc) if f.action is Action.MASK]
-    by_unit = {f.unit_id: f for f in findings}
+    # Test Block.locator (table_id, row, col) with EMP ID, NATIONAL ID, MOBILE, E-MAIL,
+    # and a RACI header cell containing a person name ("Responsible: Priya Nair")
+    ir_doc = {
+        "doc_id": "table_doc_01",
+        "pages": [
+            {
+                "page_num": 1,
+                "blocks": [
+                    {"block_id": "b_r0_c0", "text": "EMP ID", "locator": {"table_id": "tbl_1", "row": 0, "col": 0}},
+                    {"block_id": "b_r0_c1", "text": "Responsible: Priya Nair", "locator": {"table_id": "tbl_1", "row": 0, "col": 1}},
+                    {"block_id": "b_r0_c2", "text": "NATIONAL ID", "locator": {"table_id": "tbl_1", "row": 0, "col": 2}},
+                    {"block_id": "b_r0_c3", "text": "MOBILE", "locator": {"table_id": "tbl_1", "row": 0, "col": 3}},
+                    {"block_id": "b_r0_c4", "text": "E-MAIL", "locator": {"table_id": "tbl_1", "row": 0, "col": 4}},
+                    {"block_id": "b_r1_c0", "text": "EMP-20415", "locator": {"table_id": "tbl_1", "row": 1, "col": 0}},
+                    {"block_id": "b_r1_c1", "text": "Noah Novak", "locator": {"table_id": "tbl_1", "row": 1, "col": 1}},
+                    {"block_id": "b_r1_c2", "text": "912345678", "locator": {"table_id": "tbl_1", "row": 1, "col": 2}},
+                    {"block_id": "b_r1_c3", "text": "02271401359", "locator": {"table_id": "tbl_1", "row": 1, "col": 3}},
+                    {"block_id": "b_r1_c4", "text": "noah.novak@example.com", "locator": {"table_id": "tbl_1", "row": 1, "col": 4}},
+                ],
+            }
+        ],
+    }
+    findings = [f for f in detect_and_resolve(ir_doc) if f.action is Action.MASK]
+    by_block = {f.block_id: f for f in findings}
 
     # Header cell itself was scanned and "Priya Nair" detected
-    assert "table:0/r0/c1/para:0" in by_unit
-    assert by_unit["table:0/r0/c1/para:0"].pii_type is PIIType.PERSON
+    assert "b_r0_c1" in by_block
+    assert by_block["b_r0_c1"].pii_type is PIIType.PERSON
 
-    # Row 1 cells typed and boosted by column headers; Noah Novak linked to EMP-20415
-    assert "table:0/r1/c0/para:0" in by_unit
-    assert "table:0/r1/c1/para:0" in by_unit
-    assert "table:0/r1/c2/para:0" in by_unit
-    assert "table_col:person" in by_unit["table:0/r1/c1/para:0"].validator
-    assert by_unit["table:0/r1/c1/para:0"].entity_key == "EMP-20415"
+    # Row 1 cells below EMP ID, Responsible, NATIONAL ID, MOBILE, and E-MAIL are typed and detected
+    assert "b_r1_c0" in by_block and "table_col:employee_id" in by_block["b_r1_c0"].validator
+    assert "b_r1_c1" in by_block and "table_col:person" in by_block["b_r1_c1"].validator
+    assert by_block["b_r1_c1"].entity_key == "EMP-20415"
+    assert "b_r1_c2" in by_block and by_block["b_r1_c2"].pii_type is PIIType.US_SSN
+    assert "table_col:gov_id" in by_block["b_r1_c2"].validator
+    assert "b_r1_c3" in by_block and by_block["b_r1_c3"].pii_type is PIIType.PHONE
+    assert "table_col:phone" in by_block["b_r1_c3"].validator
+    assert "b_r1_c4" in by_block and by_block["b_r1_c4"].pii_type is PIIType.EMAIL
+    assert "table_col:email" in by_block["b_r1_c4"].validator
 
 
 def test_r05_dob_no_sentence_boundary_no_negative_cue_and_matching_separators():

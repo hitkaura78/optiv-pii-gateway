@@ -161,8 +161,12 @@ class NameRegistry:
         row_names: dict[tuple[str, int], list[str]] = {}
 
         for u in units:
-            uid = getattr(u, "unit_id", None) or getattr(u, "block_id", "")
-            text = getattr(u, "text", "") or ""
+            if isinstance(u, dict):
+                uid = str(u.get("unit_id") or u.get("block_id") or "")
+                text = str(u.get("text", "") or "")
+            else:
+                uid = str(getattr(u, "unit_id", None) or getattr(u, "block_id", "") or "")
+                text = str(getattr(u, "text", "") or "")
             cands = unit_candidates.get(uid, [])
             loc = parse_table_locator(u)
 
@@ -182,8 +186,12 @@ class NameRegistry:
 
         # 2. Seed remaining high-confidence PERSON candidates in document order
         for u in units:
-            uid = getattr(u, "unit_id", None) or getattr(u, "block_id", "")
-            text = getattr(u, "text", "") or ""
+            if isinstance(u, dict):
+                uid = str(u.get("unit_id") or u.get("block_id") or "")
+                text = str(u.get("text", "") or "")
+            else:
+                uid = str(getattr(u, "unit_id", None) or getattr(u, "block_id", "") or "")
+                text = str(getattr(u, "text", "") or "")
             for c in unit_candidates.get(uid, []):
                 if c.pii_type is PIIType.PERSON and c.score >= 0.78:
                     span_text = normalize_name(text[c.start:c.end])

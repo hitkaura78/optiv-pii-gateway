@@ -88,16 +88,30 @@ def upgrade_family_Context(candidates: list[Candidate], text: str, cfg: Any = No
     return upgraded
 
 
+def _get_unit_text(unit: Any) -> str:
+    if isinstance(unit, dict):
+        return str(unit.get("text", "") or "")
+    return str(getattr(unit, "text", "") or "")
+
+
 def parse_table_locator(unit: Any) -> tuple[str, int, int] | None:
-    """Extract (table_id, row, col) from a unit/block locator or unit_id string."""
-    locator = getattr(unit, "locator", None)
+    """Extract (table_id, row, col) from Block.locator (object or dict) or unit_id string."""
+    locator = unit.get("locator") if isinstance(unit, dict) else getattr(unit, "locator", None)
     if locator is not None:
-        tid = getattr(locator, "table_id", None)
-        row = getattr(locator, "row", None)
-        col = getattr(locator, "col", None)
+        if isinstance(locator, dict):
+            tid = locator.get("table_id")
+            row = locator.get("row")
+            col = locator.get("col")
+        else:
+            tid = getattr(locator, "table_id", None)
+            row = getattr(locator, "row", None)
+            col = getattr(locator, "col", None)
         if tid is not None and row is not None and col is not None:
             return str(tid), int(row), int(col)
-    uid = getattr(unit, "unit_id", None) or getattr(unit, "block_id", None) or ""
+    if isinstance(unit, dict):
+        uid = unit.get("unit_id") or unit.get("block_id") or ""
+    else:
+        uid = getattr(unit, "unit_id", None) or getattr(unit, "block_id", None) or ""
     m = _TABLE_UNIT_RE.search(str(uid))
     if not m:
         return None
@@ -118,7 +132,7 @@ def infer_table_column_types(units: list[Any], cfg: Any = None) -> dict[tuple[st
         tid, row, col = loc
         if row != 0:
             continue
-        text_upper = (getattr(u, "text", "") or "").strip().upper()
+        text_upper = _get_unit_text(u).strip().upper()
         if not text_upper:
             continue
         for canonical_type, labels in sorted(header_map.items()):
@@ -131,7 +145,7 @@ def infer_table_column_types(units: list[Any], cfg: Any = None) -> dict[tuple[st
                     or text_upper.startswith(lbl_upper + ":")
                     or text_upper.startswith(lbl_upper + " -")
                     or text_upper.startswith(lbl_upper + " (")
-                    or re.search(rf"\b{re.escape(lbl_upper)}\b", text_upper)
+                    or re.search(rf"(?<![A-Z0-9]){re.escape(lbl_upper)}(?![A-Z0-9])", text_upper)
                 ):
                     col_types[(tid, col)] = canonical_type
                     break
@@ -144,18 +158,44 @@ def apply_table_column_typing(
     unit: Any,
     candidates: list[Candidate],
     col_types: dict[tuple[str, int], str],
+    cfg: Any = None,
 ) -> list[Candidate]:
-    """Boost or add typed candidates for table cells under a typed column header."""
+    """Scan row-0 header cells for person names and type/boost cells below a typed column header."""
     loc = parse_table_locator(unit)
     if loc is None:
         return candidates
     tid, row, col = loc
-    col_type = col_types.get((tid, col))
-    if not col_type or row == 0:
+    text = _get_unit_text(unit)
+    if not text.strip():
         return candidates
 
-    text = getattr(unit, "text", "") or ""
-    if not text.strip():
+    # Row 0 (header cell): scan the header cell itself for person names (e.g. RACI "Responsible: Priya Nair")
+    if row == 0:
+        from detect.ner import recognize_persons
+
+        updated_header: list[Candidate] = list(candidates)
+        existing_person_spans = {(c.start, c.end) for c in updated_header if c.pii_type is PIIType.PERSON}
+        for pc in recognize_persons(text, cfg):
+            if (pc.start, pc.end) not in existing_person_spans:
+                updated_header.append(
+                    Candidate(
+                        start=pc.start,
+                        end=pc.end,
+                        pii_type=PIIType.PERSON,
+                        entity_type="PERSON",
+                        score=max(0.85, pc.score),
+                        validator=f"{pc.validator}+table_header:person",
+                        detector=pc.detector,
+                        category="PERSON",
+                        severity="MEDIUM",
+                        entity_key=pc.entity_key,
+                        validated=True,
+                    )
+                )
+        return updated_header
+
+    col_type = col_types.get((tid, col))
+    if not col_type:
         return candidates
 
     updated: list[Candidate] = []
@@ -190,26 +230,67 @@ def apply_table_column_typing(
         else:
             updated.append(c)
 
-    # If a PERSON column cell was not yet caught by NER (e.g. two-word name in a bare table cell),
-    # emit a table-column-typed PERSON candidate.
-    if not matched_col_type and col_type == "PERSON":
-        m = _CELL_NAME_RE.match(text)
-        if m:
-            s, e = m.span(1)
-            updated.append(
-                Candidate(
-                    start=s,
-                    end=e,
-                    pii_type=PIIType.PERSON,
-                    entity_type="PERSON",
-                    score=0.88,
-                    validator="table_col:person",
-                    detector="context:table_column",
-                    category="PERSON",
-                    severity="MEDIUM",
-                    entity_key=" ".join(text[s:e].split()),
-                    validated=True,
+    # Fallback typing when a cell under a typed header was not caught without header context
+    if not matched_col_type:
+        if col_type == "PERSON":
+            m = _CELL_NAME_RE.match(text)
+            if m:
+                s, e = m.span(1)
+                updated.append(
+                    Candidate(
+                        start=s,
+                        end=e,
+                        pii_type=PIIType.PERSON,
+                        entity_type="PERSON",
+                        score=0.88,
+                        validator="table_col:person",
+                        detector="context:table_column",
+                        category="PERSON",
+                        severity="MEDIUM",
+                        entity_key=" ".join(text[s:e].split()),
+                        validated=True,
+                    )
                 )
-            )
+        elif col_type == "GOV_ID":
+            from detect.recognizers.govid import is_valid_ssn_parts
+
+            m_ssn = re.search(r"(?<![0-9])(\d{3})[- ]?(\d{2})[- ]?(\d{4})(?![0-9])", text)
+            if m_ssn and is_valid_ssn_parts(*m_ssn.groups()):
+                s, e = m_ssn.span()
+                updated.append(
+                    Candidate(
+                        start=s,
+                        end=e,
+                        pii_type=PIIType.US_SSN,
+                        entity_type="US_SSN",
+                        score=0.92,
+                        validator="ssn_rules:pass+table_col:gov_id",
+                        detector="context:table_column",
+                        category="GOVERNMENT_ID",
+                        severity="HIGH",
+                        validated=True,
+                    )
+                )
+        elif col_type == "PHONE":
+            m_ph = re.search(r"(?<![A-Za-z0-9])([+#]?\d[\d .()-]{6,16}\d)(?![A-Za-z0-9])", text)
+            if m_ph:
+                s, e = m_ph.span(1)
+                digits = re.sub(r"\D", "", text[s:e])
+                if 7 <= len(digits) <= 15:
+                    updated.append(
+                        Candidate(
+                            start=s,
+                            end=e,
+                            pii_type=PIIType.PHONE,
+                            entity_type="PHONE_NUMBER",
+                            score=0.85,
+                            validator="table_col:phone",
+                            detector="context:table_column",
+                            category="CONTACT",
+                            severity="MEDIUM",
+                            validated=True,
+                        )
+                    )
     return updated
+
 

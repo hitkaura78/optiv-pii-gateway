@@ -110,3 +110,7 @@ def detect(doc: ExtractedDocument) -> list[Finding]:
                 findings.append(Finding(PIIType.OTHER, unit.unit_id, m.start(), m.end(),
                                         "regex:unclaimed_digit_run", 0.3, Action.REVIEW))
     return findings
+
+
+from detect.engine import detect_and_resolve, detect_strict  # noqa: E402, F401
+

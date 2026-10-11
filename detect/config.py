@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "default.yaml"
 DEFAULT_ALLOWLIST_PATH = Path(__file__).resolve().parent.parent / "config" / "allowlist.yaml"
 
 
@@ -132,28 +133,12 @@ class DetectSettings:
     phone_regions: list[str] = field(
         default_factory=lambda: ["US", "GB", "IN", "FR", "PL", "SG", "SE", "HK"]
     )
-    id_formats: dict[str, str] = field(
-        default_factory=lambda: {
-            "EMPLOYEE_ID": r"EMP-\d{5}",
-            "DIRECTOR_ID": r"DIR-\d{4}",
-            "VENDOR_WORKER_ID": r"MER-[A-Z]{2}-\d{4}",
-        }
-    )
+    id_formats: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class AllowlistSettings:
-    reference_id_prefixes: dict[str, str] = field(
-        default_factory=lambda: {
-            "INC-": "ALLOW_REF_ID_INC",
-            "LOS-": "ALLOW_REF_ID_LOS",
-            "RSK-": "ALLOW_REF_ID_RSK",
-            "CTL-": "ALLOW_REF_ID_CTL",
-            "GRP-": "ALLOW_REF_ID_GRP",
-            "SPK-": "ALLOW_REF_ID_SPK",
-            "ISS-": "ALLOW_REF_ID_ISS",
-        }
-    )
+    reference_id_prefixes: dict[str, str] = field(default_factory=dict)
     generic_mailboxes: list[dict[str, str]] = field(default_factory=list)
     company_names: list[dict[str, str]] = field(default_factory=list)
     hq_addresses: list[dict[str, str]] = field(default_factory=list)
@@ -191,14 +176,13 @@ class DetectorConfig:
                 det_raw.get("min_unique_surname_length", default_det.min_unique_surname_length)
             ),
             phone_regions=list(det_raw.get("phone_regions", default_det.phone_regions)),
-            id_formats=dict(det_raw.get("id_formats", default_det.id_formats)),
+            id_formats=dict(det_raw.get("id_formats", {})),
         )
         headers_raw = data.get("table_column_headers", {})
         headers = {str(k): [str(x) for x in v] for k, v in headers_raw.items()} if isinstance(headers_raw, dict) else {}
 
         allow_raw = data.get("allowlist", {}) if isinstance(data.get("allowlist"), dict) else {}
-        default_allow = AllowlistSettings()
-        ref_prefixes = dict(allow_raw.get("reference_id_prefixes", default_allow.reference_id_prefixes))
+        ref_prefixes = dict(allow_raw.get("reference_id_prefixes", {}))
         allow = AllowlistSettings(
             reference_id_prefixes=ref_prefixes,
             generic_mailboxes=list(allow_raw.get("generic_mailboxes", [])),
@@ -210,14 +194,29 @@ class DetectorConfig:
         return cls(detect=det, table_column_headers=headers, allowlist=allow, allowlist_file=allowlist_file)
 
 
+def _load_default_yaml_merged() -> DetectorConfig:
+    merged: dict[str, Any] = {}
+    used_path: Path | None = None
+    for candidate_path in (DEFAULT_ALLOWLIST_PATH, DEFAULT_CONFIG_PATH):
+        if candidate_path.exists():
+            raw = load_yaml_file(candidate_path)
+            used_path = candidate_path
+            for section, val in raw.items():
+                if isinstance(val, dict) and isinstance(merged.get(section), dict):
+                    merged[section].update(val)
+                else:
+                    merged[section] = val
+    if used_path is not None:
+        return DetectorConfig.from_dict(merged, used_path)
+    return DetectorConfig()
+
+
 def load_config(cfg: Any = None) -> DetectorConfig:
     """Resolve None, Path, dict, or custom object into a DetectorConfig."""
     if isinstance(cfg, DetectorConfig):
         return cfg
     if cfg is None:
-        if DEFAULT_ALLOWLIST_PATH.exists():
-            return DetectorConfig.from_dict(load_yaml_file(DEFAULT_ALLOWLIST_PATH), DEFAULT_ALLOWLIST_PATH)
-        return DetectorConfig()
+        return _load_default_yaml_merged()
     if isinstance(cfg, (str, Path)):
         p = Path(cfg)
         return DetectorConfig.from_dict(load_yaml_file(p), p)

@@ -51,11 +51,11 @@ def _is_false_positive_context(text: str, start: int, end: int, matched: str, di
         return True
     if _CARD_SHAPE_RE.match(matched):
         return True
-    # Check preceding characters for currency symbols or ID prefixes like INC- / ORD-
-    prefix = text[max(0, start - 6):start]
+    # Check preceding characters for currency symbols or ID prefixes like INC- / ORD- / EMP-
+    prefix = text[max(0, start - 8):start]
     if _CURRENCY_PREFIX_RE.search(prefix):
         return True
-    if re.search(r"[A-Za-z]{2,5}[-#]$", text[max(0, start - 6):start + 1]):
+    if re.search(r"[A-Za-z]{2,6}[-#]$", prefix):
         return True
     # Decimal money format like 1,204.00
     if "," in matched and "." in matched:
@@ -89,6 +89,11 @@ def phones(text: str, regions: list[str] | None = None, cfg: Any = None) -> list
                 text, region, leniency=phonenumbers.Leniency.POSSIBLE
             ):
                 s, e = match.start, match.end
+                # Trim unbalanced outer parentheses (e.g. '(+44 20 7946 0958')
+                while s < e and text[s] == "(" and (")" not in text[s:e] or text[s + 1:e].startswith("+")):
+                    s += 1
+                while e > s and text[e - 1] == ")" and "(" not in text[s:e - 1]:
+                    e -= 1
                 matched = text[s:e]
                 digits = re.sub(r"\D", "", matched)
                 if not (8 <= len(digits) <= 15):

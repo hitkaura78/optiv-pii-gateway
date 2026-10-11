@@ -23,7 +23,7 @@ def test_reference_ids_not_matched_as_employee_ids():
     assert recognize_ids(text) == []
 
 
-def test_changing_config_pattern_changes_behavior():
+def test_changing_config_pattern_changes_behavior(tmp_path):
     custom_cfg = {
         "detect": {
             "id_formats": {
@@ -41,4 +41,21 @@ def test_changing_config_pattern_changes_behavior():
         ("DIRECTOR_ID", "EXEC-901"),
         ("VENDOR_WORKER_ID", "VND-USA-12345"),
     ]
+
+    # Also test reading directly from a custom YAML file path
+    yaml_file = tmp_path / "custom_default.yaml"
+    yaml_file.write_text(
+        "detect:\n"
+        "  id_formats:\n"
+        "    EMPLOYEE_ID: 'WRK-\\d{4}'\n"
+        "    VENDOR_WORKER_ID: 'MER-[A-Z]{2}-\\d{4}'\n",
+        encoding="utf-8",
+    )
+    sample = "Worker WRK-7788 and vendor MER-IN-4471 (EMP-10482 not in this YAML)."
+    res_yaml = recognize_ids(sample, cfg=yaml_file)
+    assert [(c.entity_type, sample[c.start:c.end]) for c in res_yaml] == [
+        ("EMPLOYEE_ID", "WRK-7788"),
+        ("VENDOR_WORKER_ID", "MER-IN-4471"),
+    ]
+
 

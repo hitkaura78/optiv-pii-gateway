@@ -194,12 +194,9 @@ def recognize_govids(text: str) -> list[Candidate]:
                     )
                 )
 
-    # 5. Masked Polish PESEL (\d{6}[xX*]{5})
+    # 5. Masked Polish PESEL (\d{6}[xX*]{5}, e.g. 123456xxxxx or 850714*****)
     for m in _PESEL_MASKED_RE.finditer(text):
         s, e = m.span(1)
-        matched = text[s:e]
-        if not is_valid_pesel_date(matched[:6]):
-            continue
         out.append(
             Candidate(
                 start=s,
@@ -222,7 +219,6 @@ def recognize_govids(text: str) -> list[Candidate]:
         digits = re.sub(r"\D", "", raw)
         if not (13 <= len(digits) <= 19):
             continue
-        # Skip 11-digit PESELs (already handled above)
         if luhn_check(digits):
             out.append(
                 Candidate(
@@ -255,23 +251,9 @@ def recognize_govids(text: str) -> list[Candidate]:
                 )
             )
 
-    # 7. Context-cued Passport Number
-    for m in _PASSPORT_CTX_RE.finditer(text):
-        s, e = m.span(1)
-        out.append(
-            Candidate(
-                start=s,
-                end=e,
-                pii_type=PIIType.OTHER,
-                entity_type="PASSPORT",
-                score=0.90,
-                validator="context:passport",
-                detector="regex:passport",
-                category="GOVERNMENT_ID",
-                severity="HIGH",
-                validated=True,
-            )
-        )
+    # 7. TODO(Member-3): PASSPORT and TAX_ID formats are not yet specified in the Guide.
+    # [VERIFY BEFORE EXECUTION: confirm exact PASSPORT and TAX_ID patterns from the Policy
+    # sample documents / Member 5 truth before enabling recognizers here — do not guess.]
 
     out.sort(key=lambda c: (c.start, -(c.end - c.start), c.entity_type))
     return out

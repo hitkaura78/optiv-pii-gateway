@@ -18,6 +18,10 @@ def _parse_scalar(val: str) -> Any:
     val = val.strip()
     if not val:
         return ""
+    if val == "[]":
+        return []
+    if val == "{}":
+        return {}
     if (val.startswith("'") and val.endswith("'")) or (val.startswith('"') and val.endswith('"')):
         return val[1:-1]
     low = val.lower()

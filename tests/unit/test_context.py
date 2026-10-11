@@ -84,13 +84,18 @@ def test_home_address_vs_hq_address_allowlist():
     addr_cands = recognize_addresses(text)
     assert [text[c.start:c.end] for c in addr_cands] == [home, hq]
 
-    # Resolver masks the home address and suppresses the HQ address with ALLOW_HQ_ADDRESS
+    # Resolver masks the home address and suppresses an explicitly configured HQ address with ALLOW_HQ_ADDRESS
     doc = ExtractedDocument(
         SourceDocument(Path("a.docx"), SourceKind.DOCX, "b" * 64),
         [TextUnit("para:0", text)],
         True,
     )
-    findings = detect_and_resolve(doc)
+    custom_cfg = {
+        "allowlist": {
+            "hq_addresses": [{"value": hq, "reason": "ALLOW_HQ_ADDRESS"}],
+        }
+    }
+    findings = detect_and_resolve(doc, cfg=custom_cfg)
     addr_findings = [f for f in findings if f.pii_type is PIIType.ADDRESS]
     assert len(addr_findings) == 2
     masked = [f for f in addr_findings if f.action is Action.MASK]

@@ -31,16 +31,41 @@ def test_equal_span_tie_breaks_by_priority_not_raw_score():
 
 
 def test_allowlist_suppression_with_reason_codes():
-    text = "Mail support@example.com or call +1-800-555-0100 regarding INC-2026-00412 ($1,204.00)."
-    c_mail = Candidate(5, 24, PIIType.EMAIL, "EMAIL_ADDRESS", 0.95, "syntax:email", "regex:email", "CONTACT", "MEDIUM", validated=True)
-    c_phone = Candidate(33, 48, PIIType.PHONE, "PHONE_NUMBER", 0.90, "phone", "regex:phone", "CONTACT", "MEDIUM", validated=True)
+    from detect.config import load_config
 
-    res = resolve_unit_candidates("para:0", text, [c_mail, c_phone], include_allow=True)
-    reasons = {f.reason: f for f in res}
-    assert "ALLOW_GENERIC_MAILBOX" in reasons and reasons["ALLOW_GENERIC_MAILBOX"].action is Action.KEEP
-    assert "ALLOW_HOTLINE_NUMBER" in reasons and reasons["ALLOW_HOTLINE_NUMBER"].action is Action.KEEP
-    assert "ALLOW_REF_ID_INC" in reasons and reasons["ALLOW_REF_ID_INC"].action is Action.KEEP
-    assert "ALLOW_MONEY_AMOUNT" in reasons and reasons["ALLOW_MONEY_AMOUNT"].action is Action.KEEP
+    # Verify default config/allowlist.yaml does not invent company names or addresses (left as TODO)
+    cfg = load_config()
+    assert cfg.allowlist.company_names == []
+    assert cfg.allowlist.hq_addresses == []
+    assert cfg.allowlist.hotlines == []
+
+    # Test all 7 reference ID prefixes, generic mailbox, and money amount from config/allowlist.yaml
+    text = (
+        "Mail support@example.com regarding INC-2026-00412, LOS-9910, RSK-102, "
+        "CTL-008, GRP-11, SPK-04, ISS-7712 ($1,204.00 and 1 234,56 PLN)."
+    )
+    c_mail = Candidate(5, 24, PIIType.EMAIL, "EMAIL_ADDRESS", 0.95, "syntax:email", "regex:email", "CONTACT", "MEDIUM", validated=True)
+
+    res = resolve_unit_candidates("para:0", text, [c_mail], include_allow=True)
+    by_reason = {f.reason: f for f in res}
+
+    for expected_reason in (
+        "ALLOW_GENERIC_MAILBOX",
+        "ALLOW_REF_ID_INC",
+        "ALLOW_REF_ID_LOS",
+        "ALLOW_REF_ID_RSK",
+        "ALLOW_REF_ID_CTL",
+        "ALLOW_REF_ID_GRP",
+        "ALLOW_REF_ID_SPK",
+        "ALLOW_REF_ID_ISS",
+        "ALLOW_MONEY_AMOUNT",
+    ):
+        assert expected_reason in by_reason, f"Missing allow reason {expected_reason} in {by_reason.keys()}"
+        finding = by_reason[expected_reason]
+        assert finding.action is Action.KEEP
+        assert finding.action_label == "ALLOW"
+        assert finding.reason == expected_reason
+
 
 
 def test_allowlist_conflict_with_validated_high_pii_emits_review():

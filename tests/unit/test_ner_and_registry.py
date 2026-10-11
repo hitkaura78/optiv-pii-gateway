@@ -21,17 +21,35 @@ def test_titlecase_preserve_offsets_keeps_exact_unicode_length():
     assert len(titled) == len(tricky)
 
     cands = recognize_persons(tricky)
-    matched = [tricky[c.start:c.end] for c in cands]
-    assert "MARCUS VANCE" in matched
-    assert "PRIYA NAIR" in matched
+    by_text = {tricky[c.start:c.end]: (c.start, c.end) for c in cands}
+    assert "MARCUS VANCE" in by_text
+    assert "PRIYA NAIR" in by_text
+    # Verify offsets map back to exact slices in the original ALL-CAPS string
+    for expected in ("MARCUS VANCE", "PRIYA NAIR"):
+        s, e = by_text[expected]
+        assert tricky[s:e] == expected
+        assert (s, e) == (tricky.index(expected), tricky.index(expected) + len(expected))
 
 
 def test_ner_excludes_allowlisted_company_names():
-    text = "Optiv Security and Global Trust Bank met with Elena Rostova yesterday."
-    cands = recognize_persons(text)
+    # "Sterling Vance" looks like a person name if not in allowlist.company_names
+    text = "Sterling Vance and Optiv Security met with Elena Rostova yesterday."
+    cands_without_allowlist = recognize_persons(text, cfg={"allowlist": {"company_names": []}})
+    assert "Sterling Vance" in [text[c.start:c.end] for c in cands_without_allowlist]
+
+    # When "Sterling Vance" is in allowlist.company_names, recognize_persons drops it
+    cfg_with_company = {
+        "allowlist": {
+            "company_names": [
+                {"value": "Sterling Vance", "reason": "ALLOW_COMPANY_NAME"},
+                {"value": "Optiv Security", "reason": "ALLOW_COMPANY_NAME"},
+            ]
+        }
+    }
+    cands = recognize_persons(text, cfg=cfg_with_company)
     matched = [text[c.start:c.end] for c in cands]
-    assert "Elena Rostova" in matched
-    assert not any("Optiv" in m or "Global Trust" in m for m in matched)
+    assert matched == ["Elena Rostova"]
+
 
 
 def test_variants_handles_single_token_empty_hyphenated_and_middle_initials():

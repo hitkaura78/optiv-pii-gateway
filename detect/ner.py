@@ -113,7 +113,8 @@ def _is_valid_person_span(span_text: str, company_names_lower: set[str]) -> bool
     cleaned = " ".join(span_text.split())
     if not cleaned or len(cleaned) < 4:
         return False
-    if cleaned.lower() in company_names_lower:
+    low = cleaned.lower()
+    if low in company_names_lower or any(comp in low for comp in company_names_lower):
         return False
     tokens = [t.strip(".,;:()") for t in cleaned.split() if t.strip(".,;:()")]
     if len(tokens) < 2 or len(tokens) > 4:

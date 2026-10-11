@@ -148,14 +148,37 @@ def test_registry_does_not_merge_two_people_sharing_a_surname_or_short_surname()
 
 
 def test_strict_mode_never_suppresses_high_severity_and_ignores_tags():
-    # Even if an SSN appears alongside an INC- prefix orHQ address is in strict mode,
+    # Even if an SSN appears alongside an INC- prefix or HQ address is in allowlist,
     # HIGH severity items (US_SSN, HOME_ADDRESS) are never suppressed by allow-list in strict mode.
     hq = "1144 Fifteenth Street, Denver, CO 80202"
+    cfg = {"allowlist": {"hq_addresses": [{"value": hq, "reason": "ALLOW_HQ_ADDRESS"}]}}
     text = f"[PERSON_003] at {hq} with SSN 912-34-5678 and ticket INC-2026-00412."
-    res = detect_strict(text)
+    res = detect_strict(text, cfg=cfg)
     types = {f.pii_type for f in res}
     assert PIIType.US_SSN in types
     assert PIIType.ADDRESS in types
     # Non-HIGH allow-listed INC-2026-00412 is not flagged as a leak
     assert not any(text[f.start:f.end] == "INC-2026-00412" for f in res)
+
+
+def test_detect_strict_injected_email_ssn_and_clean_text():
+    # 1. Injected email found
+    t_email = "Redacted summary for [PERSON_001]: residual contact leaked.user@example.com remained."
+    res_email = detect_strict(t_email)
+    assert len(res_email) == 1
+    assert res_email[0].pii_type is PIIType.EMAIL
+    assert t_email[res_email[0].start:res_email[0].end] == "leaked.user@example.com"
+
+    # 2. Injected SSN found
+    t_ssn = "Record [EMPLOYEE_ID_001] still contains 912-34-5678 in notes."
+    res_ssn = detect_strict(t_ssn)
+    assert len(res_ssn) == 1
+    assert res_ssn[0].pii_type is PIIType.US_SSN
+    assert t_ssn[res_ssn[0].start:res_ssn[0].end] == "912-34-5678"
+
+    # 3. Clean redacted text returns nothing ([])
+    t_clean = "All PII for [PERSON_001] ([EMAIL_001], [US_SSN_001]) was removed under ticket INC-2026-00412."
+    assert detect_strict(t_clean) == []
+    assert detect_strict("") == []
+
 

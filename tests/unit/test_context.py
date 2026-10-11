@@ -111,3 +111,22 @@ def test_table_column_typing_and_raci_header_scanning():
     assert "table_col:person" in by_unit["table:0/r1/c1/para:0"].validator
     assert by_unit["table:0/r1/c1/para:0"].entity_key == "EMP-20415"
 
+
+def test_r05_dob_no_sentence_boundary_no_negative_cue_and_matching_separators():
+    # Sentence boundary + negative cue must not match
+    assert recognize_dob("Missing DOB. Effective 01/05/2025") == []
+    assert recognize_dob("DOB; 01/05/2025") == []
+    assert recognize_dob("DOB\n01/05/2025") == []
+    for neg in ("effective", "updated", "due", "issued", "expires"):
+        assert recognize_dob(f"DOB {neg} 01/05/2025") == []
+
+    # Mixed separators must not match
+    assert recognize_dob("DOB 14/07-1991") == []
+    assert recognize_dob("DOB 1991-07/14") == []
+
+    # Valid DOB formats still work
+    res = recognize_dob("DOB 14 July 1991")
+    assert len(res) == 1 and "DOB 14 July 1991"[res[0].start:res[0].end] == "14 July 1991"
+    res_dots = recognize_dob("D.O.B. 14/07/1991")
+    assert len(res_dots) == 1 and "D.O.B. 14/07/1991"[res_dots[0].start:res_dots[0].end] == "14/07/1991"
+

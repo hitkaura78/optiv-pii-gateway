@@ -65,3 +65,53 @@ def test_passport_and_tax_id_formats_todo():
     raise NotImplementedError
 
 
+def test_r03_ssn_context_connecting_words_and_sentence_boundary():
+    for sample in ("SSN is 912345678", "SSN: #912345678", "social security no. 912345678"):
+        res = [c for c in recognize_govids(sample) if c.pii_type is PIIType.US_SSN]
+        assert len(res) == 1, f"Expected 1 US_SSN in {sample!r}, got {res}"
+        assert sample[res[0].start:res[0].end] == "912345678"
+
+    # Negative: digits in another sentence or beyond the ~15 non-digit limit must not match
+    assert [c for c in recognize_govids("Missing SSN. Ref 912345678") if c.pii_type is PIIType.US_SSN] == []
+    assert [
+        c for c in recognize_govids("SSN was not provided for account ref 912345678")
+        if c.pii_type is PIIType.US_SSN
+    ] == []
+
+
+def test_r04_pesel_suppressed_on_phone_cue_and_no_double_counting():
+    from detect.recognizers.phone import phones
+
+    # Phone cue before 11-digit number -> NOT PL_PESEL, handled by phone recognizer
+    assert [c for c in recognize_govids("Call 44051401359") if c.entity_type == "PL_PESEL"] == []
+    assert len(phones("Call 44051401359")) == 1
+
+    # Non-phone context -> still PL_PESEL, and not emitted as phone
+    id_res = [c for c in recognize_govids("ID 44051401359") if c.entity_type == "PL_PESEL"]
+    assert len(id_res) == 1
+    assert "ID 44051401359"[id_res[0].start:id_res[0].end] == "44051401359"
+    assert phones("ID 44051401359") == []
+
+    # When both recognizers run together, the same span never appears in both outputs
+    combined = "Call 44051401359 or check ID 44051401359 and SSN 912-34-5678 or tel: 02271401359."
+    phone_spans = {(c.start, c.end) for c in phones(combined)}
+    govid_spans = {(c.start, c.end) for c in recognize_govids(combined)}
+    assert phone_spans.isdisjoint(govid_spans), f"Overlapping spans: {phone_spans & govid_spans}"
+
+
+def test_r06_empty_start_and_end_of_string_boundaries():
+    assert recognize_govids("") == []
+
+    start_text = "912-34-5678 on file"
+    res_start = recognize_govids(start_text)
+    assert len(res_start) == 1
+    assert res_start[0].start == 0
+    assert start_text[res_start[0].start:res_start[0].end] == "912-34-5678"
+
+    end_text = "PAN on file is ABCDE1234F"
+    res_end = recognize_govids(end_text)
+    assert len(res_end) == 1
+    assert res_end[0].end == len(end_text)
+    assert end_text[res_end[0].start:res_end[0].end] == "ABCDE1234F"
+
+

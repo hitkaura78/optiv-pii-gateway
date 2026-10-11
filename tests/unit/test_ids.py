@@ -59,3 +59,19 @@ def test_changing_config_pattern_changes_behavior(tmp_path):
     ]
 
 
+def test_r06_empty_start_and_end_of_string_boundaries():
+    assert recognize_ids("") == []
+
+    start_text = "EMP-10482 is the assigned owner"
+    res_start = recognize_ids(start_text)
+    assert len(res_start) == 1
+    assert res_start[0].start == 0
+    assert start_text[res_start[0].start:res_start[0].end] == "EMP-10482"
+
+    end_text = "Assigned owner is MER-IN-4471"
+    res_end = recognize_ids(end_text)
+    assert len(res_end) == 1
+    assert res_end[0].end == len(end_text)
+    assert end_text[res_end[0].start:res_end[0].end] == "MER-IN-4471"
+
+

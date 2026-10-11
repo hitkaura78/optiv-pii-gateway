@@ -51,3 +51,19 @@ def test_boundaries_and_trailing_punctuation():
         "end@example.com",
     ]
 
+
+def test_r06_empty_start_and_end_of_string_boundaries():
+    assert recognize_emails("") == []
+
+    start_text = "alice@example.com is the primary contact"
+    res_start = recognize_emails(start_text)
+    assert len(res_start) == 1
+    assert res_start[0].start == 0
+    assert start_text[res_start[0].start:res_start[0].end] == "alice@example.com"
+
+    end_text = "Primary contact is alice@example.com"
+    res_end = recognize_emails(end_text)
+    assert len(res_end) == 1
+    assert res_end[0].end == len(end_text)
+    assert end_text[res_end[0].start:res_end[0].end] == "alice@example.com"
+

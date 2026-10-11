@@ -14,15 +14,16 @@ from __future__ import annotations
 import re
 
 from detect.models import Candidate
+from detect.recognizers.phone import has_phone_cue_before
 from pii_pipeline.models import PIIType
 
 _SSN_DASHED_RE = re.compile(r"(?<![A-Za-z0-9-])(\d{3})-(\d{2})-(\d{4})(?![A-Za-z0-9-])")
 _SSN_CTX_RE = re.compile(
-    r"(?:ssn|social\s+security(?:\s+number|\s+no\.?)?)\W{0,4}(?<![0-9])(\d{3})(\d{2})(\d{4})(?![0-9])",
+    r"\b(?:ssn|social\s+security(?:\s+(?:number|no\b\.?))?)(?![A-Za-z0-9])[^\d.;\n]{0,15}(?<![0-9])(\d{3})(\d{2})(\d{4})(?![0-9])",
     re.I,
 )
 _PAN_RE = re.compile(r"(?<![A-Za-z0-9-])([A-Z]{5}\d{4}[A-Z])(?![A-Za-z0-9-])")
-_PESEL_RE = re.compile(r"(?<![A-Za-z0-9-])(\d{11})(?![A-Za-z0-9-])")
+_PESEL_RE = re.compile(r"(?<![A-Za-z0-9+#-])(\d{11})(?![A-Za-z0-9-])")
 _PESEL_MASKED_RE = re.compile(r"(?<![A-Za-z0-9-])(\d{6}[xX*]{5})(?![A-Za-z0-9-])")
 _PESEL_CUE_RE = re.compile(r"\bpesel\b", re.I)
 
@@ -159,6 +160,8 @@ def recognize_govids(text: str) -> list[Candidate]:
     # 4. Polish PESEL (11 digits)
     for m in _PESEL_RE.finditer(text):
         s, e = m.span(1)
+        if has_phone_cue_before(text, s, window=12):
+            continue
         num = text[s:e]
         if validate_pesel_checksum(num):
             out.append(

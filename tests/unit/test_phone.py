@@ -54,3 +54,19 @@ def test_phone_boundaries_deduplication_and_determinism():
     assert [multi[c.start:c.end] for c in r1] == ["+44 20 7946 0958", "+1 (555) 0114"]
 
 
+def test_r01_bare_10_11_digit_runs_without_formatting_or_phone_cue_rejected():
+    assert phones("Account ref 0012345678 or PESEL 02271401359") == []
+    # With a phone cue nearby, a bare 10-11 digit number IS matched as a phone
+    cued = "Call 44051401359 or tel 02079460958"
+    res = phones(cued)
+    assert [cued[c.start:c.end] for c in res] == ["44051401359", "02079460958"]
+
+
+def test_r02_trailing_decimal_and_currency_code_rejected():
+    assert phones(" Wire transfer: 01 234 567,89 PLN ") == []
+    assert phones("Amount 01 234 567.00 USD approved") == []
+    assert phones("Invoice 01 234 567 EUR paid") == []
+
+
+
+

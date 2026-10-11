@@ -42,6 +42,26 @@ _DATE_LIKE_RE = re.compile(
 _SSN_SHAPE_RE = re.compile(r"^\d{3}-\d{2}-\d{4}$")
 _CARD_SHAPE_RE = re.compile(r"^(?:\d{4}([ -])\d{4}\1\d{4}\1\d{1,7}|\d{4}([ -])\d{6}\2\d{5})$")
 _CURRENCY_PREFIX_RE = re.compile(r"(?:[$€£¥₹]|(?:\b(?:USD|EUR|GBP|INR|PLN|SGD|SEK|HKD)\s*))$", re.I)
+_CURRENCY_SUFFIX_RE = re.compile(
+    r"^(?:[.,]\d{2}(?!\d)(?:\s*(?:[$€£¥₹]|(?:USD|EUR|GBP|INR|PLN|SGD|SEK|HKD)\b))?"
+    r"|\s*(?:[$€£¥₹]|(?:USD|EUR|GBP|INR|PLN|SGD|SEK|HKD)\b))",
+    re.I,
+)
+_PHONE_CUE_PREFIX_RE = re.compile(
+    r"\b(?:call|tel|telephone|phone|mobile|cell|fax|ring)(?:\s*(?:no\.?|number|#|:|-))?\s*$",
+    re.I,
+)
+_BARE_CUED_DIGITS_RE = re.compile(r"(?<![A-Za-z0-9-])(\d{10,11})(?![A-Za-z0-9-])")
+
+
+def has_phone_cue_before(text: str, start: int, window: int = 12) -> bool:
+    """Return True if a phone cue word ('call', 'tel', 'phone', 'mobile', 'fax', 'ring')
+    appears within `window` characters before `start`."""
+    prefix = text[max(0, start - window - 6):start]
+    m = _PHONE_CUE_PREFIX_RE.search(prefix)
+    if not m:
+        return False
+    return (len(prefix) - m.start()) <= (window + len(m.group().strip()))
 
 
 def _is_false_positive_context(text: str, start: int, end: int, matched: str, digits: str) -> bool:
@@ -57,16 +77,21 @@ def _is_false_positive_context(text: str, start: int, end: int, matched: str, di
         return True
     if re.search(r"[A-Za-z]{2,6}[-#]$", prefix):
         return True
+    # Check trailing characters for decimal fractions (,89 / .00) and currency codes (PLN, USD, EUR) (R-02)
+    suffix = text[end:min(len(text), end + 12)]
+    if _CURRENCY_SUFFIX_RE.search(suffix):
+        return True
     # Decimal money format like 1,204.00
     if "," in matched and "." in matched:
         return True
-    # Reject bare digit runs without any formatting or +/# prefix in standard phone recognizer
+    # Bare digit runs without any formatting (+, #, parentheses, spaces/dashes/dots)
+    # require an explicit phone cue word nearby (R-01).
     has_struct = (
         matched.startswith(("+", "#"))
         or "(" in matched
         or any(sep in matched for sep in (" ", "-", "."))
     )
-    if not has_struct and len(digits) < 10:
+    if not has_struct and not has_phone_cue_before(text, start, window=12):
         return True
     return False
 
@@ -192,6 +217,29 @@ def phones(text: str, regions: list[str] | None = None, cfg: Any = None) -> list
                 entity_type="PHONE_NUMBER",
                 score=0.75,
                 validator="phone:regional_format",
+                detector="regex:phone",
+                category="CONTACT",
+                severity="MEDIUM",
+                validated=True,
+            )
+        )
+
+    # 5. Bare 10-11 digit numbers when preceded within ~12 chars by a phone cue word (R-01 / R-04)
+    for m in _BARE_CUED_DIGITS_RE.finditer(text):
+        s, e = m.span(1)
+        matched = text[s:e]
+        if not has_phone_cue_before(text, s, window=12):
+            continue
+        if _is_false_positive_context(text, s, e, matched, matched):
+            continue
+        raw_candidates.append(
+            Candidate(
+                start=s,
+                end=e,
+                pii_type=PIIType.PHONE,
+                entity_type="PHONE_NUMBER",
+                score=0.80,
+                validator="phone:cued_digits",
                 detector="regex:phone",
                 category="CONTACT",
                 severity="MEDIUM",

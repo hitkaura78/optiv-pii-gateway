@@ -25,19 +25,21 @@ _MONTHS = (
 
 DATE_PATTERN = (
     rf"(?:"
-    rf"\d{{1,2}}(?:[\s-]+){_MONTHS}(?:[\s,-]+)\d{{4}}"
+    rf"\d{{1,2}}(?P<dsep0>[\s-]+){_MONTHS}(?:(?P=dsep0)+|,\s*)\d{{4}}"
     rf"|{_MONTHS}\s+\d{{1,2}}(?:,\s*|\s+)\d{{4}}"
-    rf"|\d{{4}}[-/.](?:0[1-9]|1[0-2])[-/.](?:0[1-9]|[12]\d|3[01])"
-    rf"|(?:0?[1-9]|[12]\d|3[01])[-/.](?:0?[1-9]|1[0-2])[-/.]\d{{4}}"
-    rf"|(?:0?[1-9]|1[0-2])[-/.](?:0?[1-9]|[12]\d|3[01])[-/.]\d{{4}}"
+    rf"|\d{{4}}(?P<dsep1>[-/.])(?:0[1-9]|1[0-2])(?P=dsep1)(?:0[1-9]|[12]\d|3[01])"
+    rf"|(?:0?[1-9]|[12]\d|3[01])(?P<dsep2>[-/.])(?:0?[1-9]|1[0-2])(?P=dsep2)\d{{4}}"
+    rf"|(?:0?[1-9]|1[0-2])(?P<dsep3>[-/.])(?:0?[1-9]|[12]\d|3[01])(?P=dsep3)\d{{4}}"
     rf")"
 )
 
 _DATE_RE = re.compile(rf"(?<![A-Za-z0-9])({DATE_PATTERN})(?![A-Za-z0-9])", re.I)
 _DOB_CUE_RE = re.compile(
-    r"\b(?:d\.?o\.?b\.?|date\s+of\s+birth|birth\s*date|born(?:\s+on)?)\b",
+    r"\b(?:d\.o\.b\.?|dob\b|date\s+of\s+birth\b|birth\s*date\b|born(?:\s+on)?\b)",
     re.I,
 )
+_SENTENCE_BOUNDARY_RE = re.compile(r"[.;\r\n]")
+_NEGATIVE_DOB_CUE_RE = re.compile(r"\b(?:effective|updated|due|issued|expires)\b", re.I)
 
 
 def recognize_dob(text: str, cfg: Any = None) -> list[Candidate]:
@@ -54,14 +56,17 @@ def recognize_dob(text: str, cfg: Any = None) -> list[Candidate]:
 
     for m in _DATE_RE.finditer(text):
         s, e = m.span(1)
-        # Check if any DOB cue appears before `s` such that the distance from cue start
-        # (or cue end) to `s` is within `window` characters (`s - cue.start() <= window`
-        # or `s - cue.end() <= window`, where cue.end() <= s).
-        # Specifically: "within 25 characters BEFORE it" means the gap/prefix between the cue
-        # and the date start is <= 25 characters (`0 <= s - cue.end() <= window` and cue precedes date).
+        # Check if any DOB cue appears before `s` such that the gap between cue end and
+        # date start is <= `window` characters, without crossing a sentence boundary or
+        # a negative cue word (R-05).
         matched_cue = False
         for c in cues:
             if c.end() <= s and (s - c.end()) <= window:
+                between = text[c.end():s]
+                if _SENTENCE_BOUNDARY_RE.search(between):
+                    continue
+                if _NEGATIVE_DOB_CUE_RE.search(between):
+                    continue
                 matched_cue = True
                 break
         if matched_cue:

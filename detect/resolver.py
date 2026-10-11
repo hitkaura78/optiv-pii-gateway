@@ -55,23 +55,27 @@ VALIDATED_HIGH_ENTITY_TYPES = {
 
 
 def _priority_for_candidate(c: Candidate) -> int:
-    if c.category == "GOVERNMENT_ID":
+    if (
+        c.category == "GOVERNMENT_ID"
+        or c.pii_type in (PIIType.US_SSN, PIIType.PAN)
+        or c.entity_type in ("US_SSN", "IN_PAN", "PL_PESEL", "PL_PESEL_MASKED", "PASSPORT")
+    ):
         return PRIORITY_RANK["GOVERNMENT_ID"]
-    if c.category == "FINANCIAL":
+    if c.category == "FINANCIAL" or c.pii_type is PIIType.CREDIT_CARD or c.entity_type == "CREDIT_CARD":
         return PRIORITY_RANK["FINANCIAL"]
-    if c.pii_type is PIIType.DATE_OF_BIRTH or c.category == "DOB":
+    if c.pii_type is PIIType.DATE_OF_BIRTH or c.category == "DOB" or c.entity_type == "DATE_OF_BIRTH":
         return PRIORITY_RANK["DOB"]
-    if c.pii_type is PIIType.ADDRESS or c.category == "HOME_ADDRESS":
+    if c.pii_type is PIIType.ADDRESS or c.category == "HOME_ADDRESS" or c.entity_type == "HOME_ADDRESS":
         return PRIORITY_RANK["HOME_ADDRESS"]
-    if c.pii_type is PIIType.EMAIL:
+    if c.pii_type is PIIType.EMAIL or c.entity_type == "EMAIL_ADDRESS":
         return PRIORITY_RANK["CONTACT_EMAIL"]
-    if c.pii_type is PIIType.PHONE:
+    if c.pii_type is PIIType.PHONE or c.entity_type == "PHONE_NUMBER":
         return PRIORITY_RANK["CONTACT_PHONE"]
-    if c.category == "EMPLOYEE_IDENTIFIER":
+    if c.category == "EMPLOYEE_IDENTIFIER" or c.entity_type in ("EMPLOYEE_ID", "DIRECTOR_ID", "VENDOR_WORKER_ID"):
         return PRIORITY_RANK["EMPLOYEE_IDENTIFIER"]
-    if c.category == "FINANCIAL_FRAGMENT":
+    if c.category == "FINANCIAL_FRAGMENT" or c.entity_type in ("CARD_LAST4", "ACCOUNT_LAST4", "SSN_LAST4"):
         return PRIORITY_RANK["FINANCIAL_FRAGMENT"]
-    if c.category == "FAMILY_MEMBER":
+    if c.category == "FAMILY_MEMBER" or c.entity_type == "FAMILY_MEMBER_NAME":
         return PRIORITY_RANK["FAMILY_MEMBER"]
     return PRIORITY_RANK["PERSON"]
 
@@ -316,8 +320,13 @@ def resolve_unit_candidates(
                 used_allow_indices.add(idx)
 
             is_high_severity = cand.severity.upper() == "HIGH"
+            is_explicit_hq_suppression = (
+                cand.entity_type == "HOME_ADDRESS" and al_match.kind == "hq_address"
+            )
             is_validated_high_id = (
-                cand.validated and cand.entity_type in VALIDATED_HIGH_ENTITY_TYPES
+                cand.validated
+                and not is_explicit_hq_suppression
+                and (is_high_severity or cand.entity_type in VALIDATED_HIGH_ENTITY_TYPES)
             )
 
             if strict and is_high_severity:

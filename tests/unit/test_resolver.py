@@ -20,14 +20,25 @@ def test_same_span_merges_detectors_and_overlap_prefers_longest_then_priority():
 
 
 def test_equal_span_tie_breaks_by_priority_not_raw_score():
-    text = "ID 123-45-6789"
-    # Even if a PHONE or PERSON candidate has a higher raw float score on the exact same span,
-    # GOV_ID priority wins.
-    gov = Candidate(3, 14, PIIType.US_SSN, "US_SSN", 0.80, "ssn_rules:pass", "regex:us_ssn", "GOVERNMENT_ID", "HIGH", validated=True)
-    ph = Candidate(3, 14, PIIType.PHONE, "PHONE_NUMBER", 0.99, "phone", "regex:phone", "CONTACT", "MEDIUM", validated=True)
-    res = resolve_unit_candidates("para:0", text, [ph, gov], include_allow=False)
-    assert len(res) == 1
-    assert res[0].pii_type is PIIType.US_SSN
+    text = "Token 123-45-6789"
+    # Priority order on equal-length span ties: government ID > DOB > email > phone > ID > person
+    tiers = [
+        Candidate(6, 17, PIIType.US_SSN, "US_SSN", 0.70, "ssn", "regex:us_ssn", "GOVERNMENT_ID", "HIGH", validated=True),
+        Candidate(6, 17, PIIType.DATE_OF_BIRTH, "DATE_OF_BIRTH", 0.75, "dob", "context:dob", "DOB", "HIGH", validated=True),
+        Candidate(6, 17, PIIType.EMAIL, "EMAIL_ADDRESS", 0.80, "email", "regex:email", "CONTACT", "MEDIUM", validated=True),
+        Candidate(6, 17, PIIType.PHONE, "PHONE_NUMBER", 0.85, "phone", "regex:phone", "CONTACT", "MEDIUM", validated=True),
+        Candidate(6, 17, PIIType.OTHER, "EMPLOYEE_ID", 0.90, "id", "regex:employee_id", "EMPLOYEE_IDENTIFIER", "MEDIUM", validated=True),
+        Candidate(6, 17, PIIType.PERSON, "PERSON", 0.99, "ner", "spacy:person", "PERSON", "MEDIUM", validated=True),
+    ]
+    # Even though lower-priority candidates have higher raw float scores, each higher-priority tier wins
+    for idx in range(len(tiers) - 1):
+        higher = tiers[idx]
+        lower = tiers[idx + 1]
+        res = resolve_unit_candidates("para:0", text, [lower, higher], include_allow=False)
+        assert len(res) == 1
+        assert res[0].detector == higher.detector, f"Expected {higher.entity_type} to beat {lower.entity_type}"
+        assert res[0].severity == higher.severity
+        assert res[0].action is Action.MASK
 
 
 def test_allowlist_suppression_with_reason_codes():

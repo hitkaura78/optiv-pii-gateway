@@ -56,7 +56,10 @@ def recognize_fragments(text: str, cfg: Any = None) -> list[Candidate]:
         best_dist: int | None = None
         for c in cues:
             # Pick the closest domain cue preceding the trigger within `window` chars
+            # without crossing a sentence boundary.
             if c.end() <= s and 0 <= (trig_start - c.end()) <= window:
+                if re.search(r"[.;\r\n]", text[c.end():s]):
+                    continue
                 dist = s - c.end()
                 if best_dist is None or dist < best_dist:
                     best_dist = dist

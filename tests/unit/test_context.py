@@ -17,14 +17,20 @@ from pii_pipeline.models import (
 
 
 def test_dob_context_window_positives_and_negatives():
-    # Positives within 25 characters of cue
-    p1 = "Employee DOB 14 July 1991 verified."
-    res1 = recognize_dob(p1)
-    assert len(res1) == 1 and p1[res1[0].start:res1[0].end] == "14 July 1991"
-
-    p2 = "Customer date of birth, 1991-07-14 on file."
-    res2 = recognize_dob(p2)
-    assert len(res2) == 1 and p2[res2[0].start:res2[0].end] == "1991-07-14"
+    # Positives within 25 characters of "DOB", "date of birth", or "born" across supported date formats
+    supported_samples = [
+        ("Employee DOB 14 July 1991 verified.", "14 July 1991"),
+        ("DOB: 14-Jul-1991", "14-Jul-1991"),
+        ("Born July 14, 1991 in Chicago.", "July 14, 1991"),
+        ("Customer date of birth, 1991-07-14 on file.", "1991-07-14"),
+        ("DOB 14/07/1991", "14/07/1991"),
+        ("date of birth: 07/14/1991", "07/14/1991"),
+        ("born on 14.07.1991", "14.07.1991"),
+    ]
+    for sample, expected in supported_samples:
+        res = recognize_dob(sample)
+        assert len(res) == 1, f"Expected 1 DOB in {sample!r}, got {res}"
+        assert sample[res[0].start:res[0].end] == expected
 
     # Boundary: exactly 25 characters between cue end and date start
     gap_25 = ":" + (" " * 24)
@@ -38,12 +44,23 @@ def test_dob_context_window_positives_and_negatives():
     p_beyond = f"DOB{gap_26}14 July 1991"
     assert recognize_dob(p_beyond) == []
 
-    # Uncued dates -> NOT matched
-    assert recognize_dob("Policy effective 1 July 2025 across regions.") == []
-    assert recognize_dob("Thank you for calling us on 15 April 2024.") == []
+    # Required negatives: "effective 1 July" and "calling us on 15 April" (with and without year)
+    for neg_sample in (
+        "effective 1 July",
+        "calling us on 15 April",
+        "Policy effective 1 July 2025 across regions.",
+        "Thank you for calling us on 15 April 2024.",
+    ):
+        assert recognize_dob(neg_sample) == []
+        assert recognize_context(neg_sample) == []
 
 
 def test_last_four_fragments_within_30_chars():
+    # Exact required positive: "card ending 2218"
+    c1 = recognize_context("card ending 2218")
+    assert len(c1) == 1 and c1[0].entity_type == "CARD_LAST4"
+    assert "card ending 2218"[c1[0].start:c1[0].end] == "2218"
+
     text = "Paid with credit card ending 2218 and account (**9041); SSN (ending in 6789)."
     res = recognize_fragments(text)
     found = [(c.entity_type, text[c.start:c.end]) for c in res]
@@ -52,9 +69,10 @@ def test_last_four_fragments_within_30_chars():
         ("ACCOUNT_LAST4", "9041"),
         ("SSN_LAST4", "6789"),
     ]
-    # Uncued 4-digit number or >30 chars away is not matched
+    # Uncued 4-digit number, >30 chars away, or across sentence boundary is not matched
     far = "Card" + (" x" * 20) + " ending 2218"
     assert recognize_fragments(far) == []
+    assert recognize_fragments("Missing card. Page ending 2218") == []
 
 
 def test_home_address_vs_hq_address_allowlist():

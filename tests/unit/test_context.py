@@ -138,7 +138,8 @@ def test_table_column_typing_and_raci_header_scanning():
     # Row 1 cells below EMP ID, Responsible, NATIONAL ID, MOBILE, and E-MAIL are typed and detected
     assert "b_r1_c0" in by_block and "table_col:employee_id" in by_block["b_r1_c0"].validator
     assert "b_r1_c1" in by_block and "table_col:person" in by_block["b_r1_c1"].validator
-    assert by_block["b_r1_c1"].entity_key == "EMP-20415"
+    assert by_block["b_r1_c1"].entity_key == by_block["b_r1_c0"].entity_key    # person linked to their ID
+    assert "EMP-20415" not in by_block["b_r1_c1"].model_dump_json()
     assert "b_r1_c2" in by_block and by_block["b_r1_c2"].pii_type is PIIType.US_SSN
     assert "table_col:gov_id" in by_block["b_r1_c2"].validator
     assert "b_r1_c3" in by_block and by_block["b_r1_c3"].pii_type is PIIType.PHONE

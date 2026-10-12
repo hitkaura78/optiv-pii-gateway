@@ -147,7 +147,7 @@ def detect_and_resolve(
     unit_candidates: dict[str, list[Candidate]] = {}
     for nu in norm_units:
         cands = _collect_unit_candidates(nu.text, resolved_cfg)
-        cands = apply_table_column_typing(nu.raw_unit, cands, col_types)
+        cands = apply_table_column_typing(nu.raw_unit, cands, col_types, resolved_cfg)
         unit_candidates[nu.unit_id] = cands
 
     # Pass 2: Seed per-document NameRegistry (L4) and scan for variants / unique surnames

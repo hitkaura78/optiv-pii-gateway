@@ -40,6 +40,7 @@ _DATE_LIKE_RE = re.compile(
     r"^(?:\d{4}[-./ ]\d{1,2}[-./ ]\d{1,2}|\d{1,2}[-./ ]\d{1,2}[-./ ]\d{2,4})$"
 )
 _SSN_SHAPE_RE = re.compile(r"^\d{3}-\d{2}-\d{4}$")
+_IPV4_SHAPE_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")     # dotted quad: an IP address, not a phone
 _CARD_SHAPE_RE = re.compile(r"^(?:\d{4}([ -])\d{4}\1\d{4}\1\d{1,7}|\d{4}([ -])\d{6}\2\d{5})$")
 _CURRENCY_PREFIX_RE = re.compile(r"(?:[$€£¥₹]|(?:\b(?:USD|EUR|GBP|INR|PLN|SGD|SEK|HKD)\s*))$", re.I)
 _CURRENCY_SUFFIX_RE = re.compile(
@@ -64,8 +65,24 @@ def has_phone_cue_before(text: str, start: int, window: int = 12) -> bool:
     return (len(prefix) - m.start()) <= (window + len(m.group().strip()))
 
 
+def _is_isbn13(digits: str) -> bool:
+    """A 978/979-prefixed 13-digit number with a valid ISBN-13 check digit (a book number)."""
+    if len(digits) != 13 or not digits.startswith(("978", "979")):
+        return False
+    total = sum(int(d) * (3 if i % 2 else 1) for i, d in enumerate(digits[:12]))
+    return (10 - total % 10) % 10 == int(digits[12])
+
+
 def _is_false_positive_context(text: str, start: int, end: int, matched: str, digits: str) -> bool:
     if _DATE_LIKE_RE.match(matched):
+        return True
+    if _IPV4_SHAPE_RE.match(matched):
+        return True
+    # A version string such as "v9.36.0.4943": the phonenumbers matcher does not apply this
+    # module's lookbehinds. Only "v" + dots is rejected: OCR can glue a real number to a word.
+    if start > 0 and text[start - 1] in "vV" and "." in matched:
+        return True
+    if not matched.startswith("+") and _is_isbn13(digits):
         return True
     if _SSN_SHAPE_RE.match(matched):
         return True

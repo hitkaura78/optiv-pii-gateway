@@ -12,12 +12,14 @@ Responsibilities:
 - Matches standalone surnames ONLY when:
   (1) the surname is unique across all seeded people in the document,
   (2) len(surname) >= min_unique_surname_length (default 5), and
-  (3) corroborated by context or an ID-seeded record (avoiding common surname over-linking).
+  (3) corroborated by a nearby cue, or the person was seeded from an ID row (a common surname
+      always needs a cue).
 """
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 from detect.config import load_config
@@ -37,6 +39,13 @@ _SURNAME_CORROBORATION_RE = re.compile(
     r"contacted|per|according\s+to|handled\s+by|owner|reviewer)\b",
     re.I,
 )
+
+
+@lru_cache(maxsize=4096)
+def _variant_pattern(var: str) -> re.Pattern[str]:
+    """Case-insensitive pattern for a name variant, with flexible whitespace between tokens."""
+    pat_str = r"\s+".join(re.escape(t) for t in var.split())
+    return re.compile(rf"(?<![A-Za-z0-9_-])({pat_str})(?![A-Za-z0-9_-])", re.I)
 
 
 def normalize_name(name: str) -> str:
@@ -123,6 +132,14 @@ class NameRegistry:
         existing = self._by_norm_name.get(norm_key) or (
             self._by_norm_name.get(first_last_key) if surname else None
         )
+        if existing is None and surname:
+            # A variant of an already-registered person (e.g. "E. Rostova" after "Elena K. Rostova")
+            # is that person, not a new one; otherwise the surname would wrongly look non-unique.
+            owners = [p for p in self.people if norm_key in {v.lower() for v in p.surface_variants}]
+            if len(owners) > 1:
+                return None     # ambiguous (e.g. "A. Kowalski" with two Kowalskis): link to nobody
+            if owners:
+                existing = owners[0]
         if existing is not None:
             if entity_key and (not existing.has_id_seed or existing.entity_key == existing.canonical_name.lower()):
                 existing.entity_key = entity_key
@@ -204,15 +221,17 @@ class NameRegistry:
             return []
         min_surname_len = self.cfg.detect.min_unique_surname_length
         out: list[Candidate] = []
+        text_low = text.lower()
 
         for person in self.people:
+            # Every variant contains the last token literally (matched case-insensitively), so a
+            # unit without it cannot match any variant of this person.
+            anchor = (person.surname or person.first_name).lower()
+            if anchor and anchor not in text_low:
+                continue
             # 1. Multi-token variants (full name, First Last, F. Last, F.Last, middle-initial forms)
             for var in person.surface_variants:
-                # Allow flexible whitespace between tokens in the regex
-                tokens = [re.escape(t) for t in var.split()]
-                pat_str = r"\s+".join(tokens)
-                pat = re.compile(rf"(?<![A-Za-z0-9_-])({pat_str})(?![A-Za-z0-9_-])", re.I)
-                for m in pat.finditer(text):
+                for m in _variant_pattern(var).finditer(text):
                     s, e = m.span(1)
                     # Require capitalized initials in the matched surface
                     matched = text[s:e]
@@ -252,7 +271,10 @@ class NameRegistry:
                         _SURNAME_CORROBORATION_RE.search(ctx_before)
                         or _SURNAME_CORROBORATION_RE.search(ctx_after)
                     )
-                    if is_common and not has_corroboration:
+                    # A bare surname is a weak match: it needs an ID-seeded person or a nearby
+                    # cue, otherwise a word like "Title" from a style name "Book Title" is masked
+                    # everywhere. Common surnames always need a cue.
+                    if not has_corroboration and (is_common or not person.has_id_seed):
                         continue
                     out.append(
                         Candidate(

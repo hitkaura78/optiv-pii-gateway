@@ -97,11 +97,14 @@ def test_registry_links_variants_within_one_doc_and_never_across_docs():
     assert "E. Rostova" in para_hits
     assert "E.Rostova" in para_hits
     assert "Rostova" in para_hits
-    # All linked to EMP-30912 and given the same entity_type_tag
+    # All linked to the EMP-30912 finding's key and given the same entity_type_tag
+    emp1 = [f for f in detect_and_resolve(doc1) if f.unit_id == "table:0/r1/c0/para:0"]
     person_keys = {f.entity_key for f in f1}
     person_tags = {f.entity_type_tag for f in f1}
-    assert person_keys == {"EMP-30912"}
+    assert person_keys == {emp1[0].entity_key}
     assert person_tags == {"[PERSON_001]"}
+    # The key is opaque: never the raw ID or name
+    assert all("EMP-30912" not in f.model_dump_json() and "Rostova" not in f.entity_key for f in f1)
 
     # Document 2 has a different person with a similar surname ("Viktor Rostova", EMP-99100)
     # -> must NOT inherit EMP-30912 from Document 1
@@ -117,9 +120,14 @@ def test_registry_links_variants_within_one_doc_and_never_across_docs():
         True,
     )
     f2 = [f for f in detect_and_resolve(doc2) if f.pii_type is PIIType.PERSON and f.action is Action.MASK]
-    doc2_keys = {f.entity_key for f in f2}
-    assert doc2_keys == {"EMP-99100"}
-    assert "EMP-30912" not in doc2_keys
+    emp2 = [f for f in detect_and_resolve(doc2) if f.unit_id == "table:0/r1/c0/para:0"]
+    text2 = doc2.units[4].text
+    viktor = [f for f in f2 if f.unit_id != "para:0" or text2[f.start:f.end] == "V. Rostova"]
+    assert {f.entity_key for f in viktor} == {emp2[0].entity_key}
+    # "E. Rostova" is a different person in this document: masked, but not merged with Viktor
+    other = [f for f in f2 if f.unit_id == "para:0" and text2[f.start:f.end] == "E. Rostova"]
+    assert other and other[0].entity_key != emp2[0].entity_key
+    assert all("EMP-99100" not in f.model_dump_json() for f in f2)
 
     # Document 3 has no full-name seed for Rostova -> bare 'Rostova' is NOT linked across documents
     doc3 = ExtractedDocument(
@@ -129,6 +137,22 @@ def test_registry_links_variants_within_one_doc_and_never_across_docs():
     )
     f3 = [f for f in detect_and_resolve(doc3) if f.pii_type is PIIType.PERSON and f.action is Action.MASK]
     assert f3 == []
+
+
+def test_names_with_initials_are_detected_in_prose_h6():
+    # Guide H6 examples: the initial's "." must not cause the whole name to be rejected
+    for text, name in (("Statement by Rafael E. Duarte follows.", "Rafael E. Duarte"),
+                       ("Approved by S. Marchetti-Lang today", "S. Marchetti-Lang")):
+        assert name in [text[c.start:c.end] for c in recognize_persons(text)]
+    assert recognize_persons("see A. B. and C.") == []          # initials alone are not a name
+
+
+def test_ambiguous_initial_variant_links_to_nobody():
+    reg = NameRegistry()
+    reg.register("Alice Kowalski")
+    reg.register("Adam Kowalski")
+    assert reg.register("A. Kowalski") is None
+    assert len(reg.people) == 2
 
 
 def test_registry_does_not_merge_two_people_sharing_a_surname_or_short_surname():

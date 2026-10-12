@@ -1,9 +1,18 @@
 """PII detection over extracted text. Owner: builder.
 
-Regex + validation only (no NER). Findings hold locations, never matched values.
+detect() is the Member 3 engine (detect/engine.py: patterns + validators, context, names,
+per-document name registry, allow-list with reason codes) plus this module's original
+regex detector as a safety net: a pattern finding is kept only where the engine has not
+already decided the span (masked it, sent it to review, or allow-listed it with a reason).
+The net keeps the fail-closed rule that unclaimed 7+ digit runs go to REVIEW.
+detect_residual() is the stricter re-scan for the release gate.
+Findings hold locations, never matched values.
 """
 import ipaddress
 import re
+
+from detect.config import load_config
+from detect.engine import detect_and_resolve, detect_strict
 
 from .models import Action, ExtractedDocument, Finding, PIIType
 
@@ -86,8 +95,9 @@ def _candidates(text: str):
             yield PIIType.PHONE, m.start(), m.end(), "regex:phone_bare_digits", 0.4, Action.REVIEW, 0
 
 
-def detect(doc: ExtractedDocument) -> list[Finding]:
-    """Return findings with char spans into TextUnit.text. Low-confidence hits -> Action.REVIEW."""
+def pattern_detect(doc: ExtractedDocument) -> list[Finding]:
+    """Original regex detector. Findings have char spans into TextUnit.text; low-confidence hits
+    -> Action.REVIEW."""
     findings: list[Finding] = []
     for unit in doc.units:
         cands = list(_candidates(unit.text))
@@ -112,5 +122,35 @@ def detect(doc: ExtractedDocument) -> list[Finding]:
     return findings
 
 
-from detect.engine import detect_and_resolve, detect_strict  # noqa: E402, F401
+def _settles(f: Finding) -> bool:
+    """An engine finding that decides its span: mask/redact/review, or an allow-list suppression.
+    A plain below-threshold KEEP decides nothing, so the safety net still applies there."""
+    return f.action is not Action.KEEP or getattr(f, "reason", "").startswith("ALLOW_")
+
+
+def _with_safety_net(doc: ExtractedDocument, engine: list[Finding]) -> list[Finding]:
+    settled: dict[str, list[tuple[int, int]]] = {}
+    for f in engine:
+        if _settles(f) and f.start is not None:
+            settled.setdefault(f.unit_id, []).append((f.start, f.end))
+    net = [p for p in pattern_detect(doc)
+           if not any(p.start < e and s < p.end for s, e in settled.get(p.unit_id, ()))]
+    return engine + net
+
+
+def detect(doc: ExtractedDocument) -> list[Finding]:
+    """Engine findings (including ALLOW records as Action.KEEP with a reason code) plus the
+    pattern safety net. Char spans index TextUnit.text."""
+    return _with_safety_net(doc, detect_and_resolve(doc))
+
+
+def detect_residual(doc: ExtractedDocument) -> list[Finding]:
+    """Stricter re-scan of redacted output for the gate: the engine's strict mode per unit (lower
+    threshold, no allow-list for HIGH types, placeholder tags ignored) plus the safety net."""
+    cfg = load_config()
+    engine: list[Finding] = []
+    for unit in doc.units:
+        engine += detect_strict(unit.text, cfg, doc_id=doc.source.doc_id, block_id=unit.unit_id,
+                                include_allow=True)
+    return _with_safety_net(doc, engine)
 

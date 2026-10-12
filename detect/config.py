@@ -6,6 +6,7 @@ fallback so the package runs with zero extra dependencies.
 """
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -113,7 +114,20 @@ def _simple_yaml_load(text: str) -> dict[str, Any]:
     return result if isinstance(result, dict) else {}
 
 
+_YAML_CACHE: dict[tuple[str, int], dict[str, Any]] = {}
+
+
 def load_yaml_file(path: Path) -> dict[str, Any]:
+    """Parse a YAML file, cached by (path, mtime). Callers get a fresh deep copy each time, so
+    mutating the result never changes the cache; editing the file invalidates its entry."""
+    p = Path(path).resolve()
+    key = (str(p), p.stat().st_mtime_ns)
+    if key not in _YAML_CACHE:
+        _YAML_CACHE[key] = _parse_yaml_file(p)
+    return copy.deepcopy(_YAML_CACHE[key])
+
+
+def _parse_yaml_file(path: Path) -> dict[str, Any]:
     text = Path(path).read_text(encoding="utf-8")
     try:
         import yaml  # type: ignore

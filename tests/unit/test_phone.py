@@ -62,6 +62,15 @@ def test_r01_bare_10_11_digit_runs_without_formatting_or_phone_cue_rejected():
     assert [cued[c.start:c.end] for c in res] == ["44051401359", "02079460958"]
 
 
+def test_look_alikes_ip_isbn_and_version_rejected_h9():
+    assert phones("Server 203.0.113.42 restarted") == []
+    assert phones("ISBN 978-0-306-40615-7 cited") == []       # valid ISBN-13 check digit
+    assert phones("Build v9.36.0.4943 shipped") == []
+    # an OCR-glued number is still a phone: only a "v" + dotted version is rejected
+    for text, number in (("Call5551234567", "5551234567"), ("Call555-123-4567", "555-123-4567")):
+        assert [text[c.start:c.end] for c in phones(text)] == [number]
+
+
 def test_r02_trailing_decimal_and_currency_code_rejected():
     assert phones(" Wire transfer: 01 234 567,89 PLN ") == []
     assert phones("Amount 01 234 567.00 USD approved") == []

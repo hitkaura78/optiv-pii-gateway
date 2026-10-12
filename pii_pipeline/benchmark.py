@@ -255,7 +255,8 @@ def evaluate_file(entry, path: Path, work: Path):
             res["decoys"].append((d["key"], "unlocated"))
             continue
         unit, s, e = loc
-        hits = [p for p in pred if p.unit_id == unit and p.start is not None and p.start < e and s < p.end]
+        hits = [p for p in pred if p.unit_id == unit and p.action is not Action.KEEP   # KEEP = allow-listed
+                and p.start is not None and p.start < e and s < p.end]
         kind = ("masked" if any(p.action in (Action.MASK, Action.REDACT) for p in hits)
                 else "review" if hits else "clean")
         res["decoys"].append((d["key"], kind))

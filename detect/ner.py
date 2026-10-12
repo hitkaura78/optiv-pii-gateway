@@ -116,8 +116,12 @@ def _is_valid_person_span(span_text: str, company_names_lower: set[str]) -> bool
     low = cleaned.lower()
     if low in company_names_lower or any(comp in low for comp in company_names_lower):
         return False
-    tokens = [t.strip(".,;:()") for t in cleaned.split() if t.strip(".,;:()")]
+    # Keep a trailing "." so initials ("E.", "S.") are still recognisable as initials below.
+    tokens = [t.strip(",;:()").lstrip(".") for t in cleaned.split()]
+    tokens = [t for t in tokens if t.rstrip(".")]
     if len(tokens) < 2 or len(tokens) > 4:
+        return False
+    if all(len(t.rstrip(".")) == 1 for t in tokens):    # "A. B." is not a name
         return False
     for tok in tokens:
         tok_clean = tok.rstrip(".")

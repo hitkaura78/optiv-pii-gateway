@@ -30,7 +30,7 @@ def test_smoke_run_scores_and_reports(tmp_path):
     res = benchmark.run_corpus(tmp_path)
     per = res["score"]["per_type"]
     assert per["email"]["recall"] == 1.0 and per["us_ssn"]["recall"] == 1.0           # well-formed values are found
-    assert per["person"]["tp"] == 0 and per["person"]["fn"] == 6                       # unsupported by design
+    assert per["person"]["tp"] > 0                                  # names now come from the detect/ engine
     assert res["score"]["overall"]["tp"] > 0
     assert sum(sum(c.values()) for c in res["outcomes"].values()) == 6
     assert res["leaks"].get("email", 0) == 0 and res["leaks"].get("us_ssn", 0) == 0     # nothing supported released

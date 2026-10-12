@@ -4,5 +4,9 @@ python-docx==1.2.0
 python-pptx==1.0.2
 pytesseract==0.3.13    # needs Tesseract OCR binary installed separately
 pillow==12.3.0
+# detect/ engine: without these it silently falls back to weaker code paths
+phonenumbers==9.0.41   # phone parsing/validation by region
+python-stdnum==2.2     # PESEL checksum
+PyYAML==6.0.3          # config/allowlist.yaml
 # Dev
 pytest==9.1.1

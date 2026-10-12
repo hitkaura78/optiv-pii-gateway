@@ -85,7 +85,11 @@ allowlist:
 
   # TODO(Member-3): Populate real company_names, hq_addresses, and hotlines from
   # the actual sample documents once provided — do not invent values.
-  company_names: []
+  company_names:
+    # Not a sample value: Office writes its application name (e.g. "Microsoft Macintosh Word")
+    # into docProps/app.xml of every document, where the name heuristic read it as a person.
+    - value: Microsoft
+      reason: ALLOW_COMPANY_NAME
   hq_addresses: []
   hotlines: []
 

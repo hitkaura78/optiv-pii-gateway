@@ -34,7 +34,7 @@ def run(input_path: Path, out_dir: Path, write_audit: bool = False):
         findings = detect.detect(doc)
         result = redact.redact(doc, findings, out_dir, write_audit=write_audit)
         red_doc = extract.extract(ingest.load(result.output_path))
-        residual = detect.detect(red_doc)
+        residual = detect.detect_residual(red_doc)
         decision = gate.decide(doc, findings, red_doc, residual)
         rpath = report.write_report(doc, findings, decision, out_dir / f"{stem}.report.json")
         if decision.passed:

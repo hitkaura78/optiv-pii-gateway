@@ -182,9 +182,11 @@ def _deterministic_finding_id(doc_id: str, unit_id: str, start: int, end: int, e
 class EntityTagAssigner:
     """Maintains deterministic per-document entity keys and typed tags (e.g. [EMAIL_001]).
 
-    Rule: `entity_key` is the structured employee/director/vendor ID when known
-    (e.g. 'EMP-20415'), or a deterministic hash (`ek_<sha256[:12]>`) so raw PII values
-    are never stored in Finding fields.
+    Rule: `entity_key` is an opaque document-local key (`ek_0001`, `ek_0002`, ... in first-seen
+    order). Findings for the same normalised raw key share it, so a person linked by the registry
+    to an employee ID carries the same key as that ID's finding. The key is never the value or a
+    hash of it: employee IDs and names are low-entropy and a hash would be reversible by
+    enumeration, and a value hash would also link the same person across documents (H12).
     """
 
     _STRUCTURED_ID_KEY_RE = re.compile(r"^[A-Z]{2,6}-(?:[A-Z]{2,3}-)?\d{3,8}$")
@@ -192,16 +194,15 @@ class EntityTagAssigner:
     def __init__(self) -> None:
         self._counters: dict[str, int] = {}
         self._assigned_tags: dict[tuple[str, str], str] = {}
+        self._entity_keys: dict[str, str] = {}
 
     def assign(self, entity_type: str, raw_key: str) -> tuple[str, str]:
         norm_type = entity_type.upper()
-        cleaned = " ".join(raw_key.strip().split())
-        norm_key = cleaned.lower()
+        norm_key = " ".join(raw_key.strip().split()).lower()
         lookup = (norm_type, norm_key)
-        if self._STRUCTURED_ID_KEY_RE.match(cleaned):
-            safe_key = cleaned
-        else:
-            safe_key = f"ek_{hashlib.sha256(norm_key.encode('utf-8')).hexdigest()[:12]}"
+        if norm_key not in self._entity_keys:
+            self._entity_keys[norm_key] = f"ek_{len(self._entity_keys) + 1:04d}"
+        safe_key = self._entity_keys[norm_key]
         if lookup in self._assigned_tags:
             return safe_key, self._assigned_tags[lookup]
         idx = self._counters.get(norm_type, 0) + 1

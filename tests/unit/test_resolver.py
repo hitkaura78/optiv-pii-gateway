@@ -44,9 +44,10 @@ def test_equal_span_tie_breaks_by_priority_not_raw_score():
 def test_allowlist_suppression_with_reason_codes():
     from detect.config import load_config
 
-    # Verify default config/allowlist.yaml does not invent company names or addresses (left as TODO)
+    # Verify default config/allowlist.yaml does not invent sample company names or addresses (left
+    # as TODO); the only company entry is the Office application name written into every document
     cfg = load_config()
-    assert cfg.allowlist.company_names == []
+    assert [c["value"] for c in cfg.allowlist.company_names] == ["Microsoft"]
     assert cfg.allowlist.hq_addresses == []
     assert cfg.allowlist.hotlines == []
 

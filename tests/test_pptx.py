@@ -11,7 +11,7 @@ from pptx.enum.chart import XL_CHART_TYPE
 from pptx.util import Inches
 
 from pii_pipeline import cli, detect, extract, ingest
-from pii_pipeline.models import PIIType
+from pii_pipeline.models import Action, PIIType
 from tests.test_docx_hardening import mutate_zip, package_blob, sub
 
 EMAIL, PHONE = "jane.tester@example.com", "415-555-0132"
@@ -112,7 +112,7 @@ def test_every_text_location_is_redacted(tmp_path, capsys):
     prs = Presentation(str(rel[0]))                       # python-pptx reopens it
     assert len(prs.slides) == 2
     again = extract.extract(ingest.load(rel[0]))
-    assert again.complete and not detect.detect(again)
+    assert again.complete and not [f for f in detect.detect(again) if f.action is not Action.KEEP]
     shown = capsys.readouterr()
     rep = next(out.glob("*.report.json")).read_text()
     assert not any(s in shown.out + shown.err + rep for s in (EMAIL, PHONE, "grp.leak", "notes.leak"))

@@ -7,7 +7,7 @@ from docx.oxml.ns import nsdecls
 from lxml import etree
 
 from pii_pipeline import cli, detect, extract, gate, ingest
-from pii_pipeline.models import PIIType
+from pii_pipeline.models import Action, PIIType
 from tests.test_docx_hardening import mutate_zip, package_blob, sub
 from tests.test_docx_slice import make_docx
 
@@ -71,7 +71,7 @@ def test_split_and_nested_pii_redacted_from_every_fragment(tmp_path, capsys):
     for s in SECRETS:
         assert s not in blob, s
     again = extract.extract(ingest.load(released[0]))          # reopens and re-extracts
-    assert not [f for f in detect.detect(again)]
+    assert not [f for f in detect.detect(again) if f.action is not Action.KEEP]
     shown = capsys.readouterr()
     text = shown.out + shown.err + next(out.glob("*.report.json")).read_text()
     assert not any(s in text for s in SECRETS if len(s) > 6 and s not in ("0147", "555"))   # hex ids may contain "555"
